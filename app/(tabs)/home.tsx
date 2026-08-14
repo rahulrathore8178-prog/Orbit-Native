@@ -1,12 +1,15 @@
 import Postcard from '@/components/ui/postcard';
 import '@/global.css';
+import { useAppDispatch } from '@/redux/store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import axios from 'axios';
+import { useNavigation } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ScrollView, Text } from 'react-native';
 // Local override for development; replace with shared config in production
- export const API_URL = 'http://10.36.40.37:5000';
- export const BASE_URL = 'http://10.36.40.37:5000/api/community/posts/image/'
+export const API_URL = 'http://10.36.40.37:5000';
+export const BASE_URL = 'http://10.36.40.37:5000/api/community/posts/image/'
 
 type Post = {
     _id?: string;
@@ -29,44 +32,31 @@ export default function IndexScreen() {
 
     const handleLike = async (postId: string, isLiked: boolean) => {
         console.log('handleLike called for', postId, 'isLiked:', isLiked);
-        // optimistic update
-        setPosts(prev =>
-            prev.map(p => {
-                const pid = p._id ?? p.id ?? '';
-                return pid === postId
-                    ? {
-                        ...p,
-                        isLikedByCurrentUser: !isLiked,
-                        likesCount: (p.likesCount ?? 0) + (isLiked ? -1 : 1),
-                    }
-                    : p;
-            })
-        );
-
         try {
             const token = await AsyncStorage.getItem('token');
             const url = `${API_URL}/api/community/posts/${postId}/like`;
-            // const method = isLiked ? 'DELETE' : 'POST';
             console.log('postLike sending request', url);
-            await axios.post(`${API_URL}/api/community/posts/${postId}/like`, {
+            const response = await axios.post(url, null, {
                 withCredentials: true,
-                headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+                headers: token ? { Authorization: `Bearer ${token}` } : {},
             });
+
+            // Prefer updating the single post from the server response when available.
+            // If the server returns the updated post object, merge it; otherwise refresh the feed.
+            const updatedPost = response?.data?.post ?? response?.data;
+            if (updatedPost && (updatedPost._id || updatedPost.id)) {
+                setPosts(prev =>
+                    prev.map(p => {
+                        const pid = p._id ?? p.id ?? '';
+                        const updatedId = updatedPost._id ?? updatedPost.id ?? '';
+                        return pid === updatedId ? { ...p, ...updatedPost } : p;
+                    })
+                );
+            } else {
+                await getFeed();
+            }
         } catch (error) {
             console.error('postLike error:', error);
-            // revert optimistic update on error
-            setPosts(prev =>
-                prev.map(p => {
-                    const pid = p._id ?? p.id ?? '';
-                    return pid === postId
-                        ? {
-                            ...p,
-                            isLikedByCurrentUser: isLiked,
-                            likesCount: (p.likesCount ?? 0) + (isLiked ? 1 : -1),
-                        }
-                        : p;
-                })
-            );
         }
     };
 
@@ -86,6 +76,21 @@ export default function IndexScreen() {
             console.error('Error fetching feed:', error);
         }
     };
+
+    const navigation = useNavigation<BottomTabNavigationProp<any>>();
+
+    useEffect(() => {
+        const parent = navigation.getParent<BottomTabNavigationProp<any>>() ?? navigation;
+
+        const unsubscribe = parent.addListener('tabPress', () => {
+            if (navigation.isFocused()) {
+                // refresh the feed when the tab is pressed while focused
+                getFeed();
+            }
+        });
+
+        return unsubscribe;
+    }, [navigation]);
 
     useEffect(() => {
         getFeed();

@@ -4,6 +4,7 @@ import { useAppDispatch } from '@/redux/store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { router } from 'expo-router';
+import { ChevronLeft } from 'lucide-react-native';
 import React from 'react';
 import { DeviceEventEmitter, Platform, Pressable, Text, View } from 'react-native';
 
@@ -37,7 +38,16 @@ const Settings = () => {
 
     return (
         <View style={{ flex: 1 }} className="flex-1 bg-black pt-14">
-            <Text className="text-white text-2xl font-bold px-5 pb-4">Settings</Text>
+            <View className="flex-row items-center just px-4 py-3">
+                <Pressable
+                    onPress={() => router.push('/(tabs)/profile')}
+                    hitSlop={8}
+                    className="h-9 w-9 items-center justify-center bottom-1 rounded-full bg-white/5 active:bg-white/10"
+                >
+                    <ChevronLeft size={20} color="#ffffff" />
+                </Pressable>
+                <Text className="text-white text-2xl font-bold px-5 pb-4">Settings</Text>
+            </View>
             <Pressable
                 onPress={handleLogout}
                 className="flex-row text-white bg-red-800 rounded-full items-center gap-3 px-5 py-3 active:bg-neutral-900"

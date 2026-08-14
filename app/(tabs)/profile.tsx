@@ -13,6 +13,7 @@ import { router, useLocalSearchParams, useNavigation } from 'expo-router'
 import { useDispatch, useSelector } from 'react-redux'
 import { API_URL } from './home'
 import { Settings } from 'lucide-react-native'
+import { fetchFriends } from '@/redux/slice/friends'
 
 
 // ---------- Sample data — replace with your real backend calls ----------
@@ -132,6 +133,9 @@ export default function Profile() {
   useEffect(() => {
     getUserProfile();
   }, [userId]);
+  useEffect(() => {
+    fetchFriends();
+  }, []);
 
   const updateProfile = useSelector((state: RootState) => state.profile.name)
   const friends = useSelector((state: RootState) => state.friends.friends);
@@ -294,7 +298,7 @@ export default function Profile() {
 
                 <View className="mt-4 flex-row items-center gap-2">
                   <Text className="text-xs text-neutral-400">
-                    <Text className="font-bold text-white">{SAMPLE_POSTS.length}</Text> Posts
+                    <Text className="font-bold text-white">{posts.length}</Text> Posts
                   </Text>
                   <Text className="text-neutral-600">|</Text>
                   <Pressable onPress={() => router.push('/components/profile/friends')} className="text-xs text-neutral-400">
@@ -304,7 +308,7 @@ export default function Profile() {
                   </Pressable>
                   <Text className="text-neutral-600">|</Text>
                   <Pressable onPress={() => router.push('/components/profile/settings')}>
-                    <Settings className="text-xl font-bold text-white"/>
+                    <Settings className="text-xl font-bold text-white" />
                   </Pressable>
                 </View>
               </View>

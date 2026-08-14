@@ -32,41 +32,22 @@ import { API_URL } from './home'
 
 type Message = {
   id: string
-  text: string
+  content: string
   sender: 'me' | 'them'
   time: string
 }
 
-// const CONTACTS: Contact[] = [
-//   { id: '1', name: 'Ava Martinez', avatar: 'https://i.pravatar.cc/150?img=32', lastMessage: 'See you tomorrow!', time: '09:41', online: true },
-//   { id: '2', name: 'Liam Chen', avatar: 'https://i.pravatar.cc/150?img=12', lastMessage: 'Sent the files 📎', time: '08:20', online: true },
-//   { id: '3', name: 'Sofia Ricci', avatar: 'https://i.pravatar.cc/150?img=47', lastMessage: 'Haha that\u2019s wild', time: 'Yesterday' },
-//   { id: '4', name: 'Noah Bennett', avatar: 'https://i.pravatar.cc/150?img=15', lastMessage: 'Call me when free', time: 'Yesterday', online: true },
-//   { id: '5', name: 'Maya Patel', avatar: 'https://i.pravatar.cc/150?img=25', lastMessage: 'Loved the post 🔥', time: 'Mon' },
-//   { id: '6', name: 'Ethan Brooks', avatar: 'https://i.pravatar.cc/150?img=8', lastMessage: 'Sounds good', time: 'Mon' },
-// ]
-
-// function getInitialMessages(contact: Contact): Message[] {
-//   return [
-//     { id: '1', text: `Hey! Are we still on for tomorrow?`, sender: 'them', time: '09:12' },
-//     { id: '2', text: `Yes, looking forward to it 🙌`, sender: 'me', time: '09:14' },
-//     { id: '3', text: `Perfect, I'll bring the documents.`, sender: 'them', time: '09:15' },
-//     { id: '4', text: `Sounds good, see you then!`, sender: 'me', time: '09:16' },
-//     { id: '5', text: `Also — did you see what ${contact.name.split(' ')[0]} posted earlier?`, sender: 'them', time: '09:17' },
-//   ]
-// };
-
 // Chat Prop
 interface ChatProp {
   id: string;
-  sender: string;
+  sender: 'me' | 'them';
   text: string;
   time: string;
 };
 
 // ---------- Message bubble ----------
 
-function MessageBubble({ item }: { item: Message }) {
+function MessageBubble({ item, id }: { item: Message }) {
   const isMe = item.sender === 'me'
   return (
     // The only "pop" animation in this screen: bubbles rise + fade in as they mount.
@@ -75,7 +56,7 @@ function MessageBubble({ item }: { item: Message }) {
       className={`max-w-[75%] rounded-2xl px-4 py-2.5 ${isMe ? 'self-end bg-gray-700' : 'self-start bg-neutral-800'
         }`}
     >
-      <Text className="text-gray-100 text-[14.5px] leading-5">{item.text}</Text>
+      <Text className="text-gray-100 text-[14.5px] leading-5">{item.content}</Text>
       <Text className="text-gray-400 text-[10px] mt-1 self-end">{item.time}</Text>
     </Animated.View>
   )
@@ -93,6 +74,7 @@ function ContactsScreen({
   onSelect: (contact: Friend) => void
 }) {
   const data = filteredFriends ?? contacts ?? []
+
 
   return (
     <View style={{ flex: 1 }} className="flex-1 bg-black pt-14">
@@ -130,24 +112,24 @@ function ContactsScreen({
 
 // ---------- Chat screen ----------
 
-function ChatScreen({ contact, onBack }: { contact: Friend; onBack: () => void }) {
-  const [messages, setMessages] = useState<ChatProp[]>([]);
+function ChatScreen({ contact, onBack, messages }: { contact: Friend; onBack: () => void; messages: Message[] }) {
+  // const [messages, setMessages] = useState<Message[]>([]);
   const input = useSelector((state: RootState) => state.chat.input)
   const listRef = useRef<FlatList>(null)
   const dispatch = useAppDispatch()
 
-  const handleSend = () => {
-    const trimmed = input.trim()
-    if (!trimmed) return
-    const newMessage: Message = {
-      id: String(Date.now()),
-      text: trimmed,
-      sender: 'me',
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    }
-    setMessages((prev) => [...prev, newMessage])
-    dispatch({ type: 'chat/setInput', payload: '' })
-  }
+  // const handleSend = () => {
+  //   const trimmed = input.trim()
+  //   if (!trimmed) return
+  //   const newMessage: Message = {
+  //     id: String(Date.now()),
+  //     text: trimmed,
+  //     sender: 'me',
+  //     time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+  //   }
+  //   setMessages((prev) => [...prev, newMessage])
+  //   dispatch({ type: 'chat/setInput', payload: '' })
+  // }
 
   return (
     // The only other animation in this screen: the chat slides/fades in on open.
@@ -184,9 +166,6 @@ function ChatScreen({ contact, onBack }: { contact: Friend; onBack: () => void }
           keyExtractor={(m) => m.id}
           renderItem={({ item }) => <MessageBubble item={item} />}
           className="flex-1 bg-black"
-          // contentContainerStyle kept as a plain style object rather than
-          // contentContainerClassName, since that prop only exists on
-          // NativeWind v4 — this stays safe regardless of your version.
           contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 16, gap: 10 }}
           onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
         />
@@ -214,7 +193,7 @@ function ChatScreen({ contact, onBack }: { contact: Friend; onBack: () => void }
             <Ionicons name="camera-outline" size={21} color="#9ca3af" />
           </Pressable>
 
-          <Pressable onPress={handleSend} hitSlop={6} className="p-1.5">
+          <Pressable hitSlop={6} className="p-1.5">
             {input.trim().length > 0 ? (
               <Ionicons name="send" size={20} color="white" />
             ) : (
@@ -236,34 +215,35 @@ export default function MessagesApp() {
   const isLoading = useSelector((state: RootState) => state.friends.isLoading)
   const error = useSelector((state: RootState) => state.friends.error)
   const [query, setQuery] = useState('');
+  const [messages, setMessages] = useState<Message[]>([]);
+  console.log('selected:', selectedContact?._id)
 
-  const testFriends = async () => {
+  const getMessages = async (friendId?: string) => {
     try {
+      const id = selectedContact?._id
+      console.log('selectedContact:', selectedContact)
+      console.log('Hit Chats')
+      if (!id) return;
       const token = await AsyncStorage.getItem('token');
-      const response = await axios.get<{ friends: Friend }>(
-        `${API_URL}/api/social/friends`,
-        {
-          withCredentials: true,
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-        }
-      );
-
-      console.log('friends', response.data?.friends);
-      return response.data.friends ?? [];
-    } catch (error: any) {
-      console.error('Error fetching friends:', error);
-      // return thunkAPI.rejectWithValue({
-      //   message:
-      //     error?.response?.data?.message ||
-      //     error?.message ||
-      //     'Failed to fetch friends',
-      // });
+      const response = await axios.get(`${API_URL}/api/chat/${id}`, {
+        withCredentials: true,
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      // handle response as needed
+      console.log('chats', response?.data?.messages);
+      setMessages(response.data.messages);
+      return response.data.messages;
+    } catch (error) {
+      console.error('Error fetching messages:', error);
     }
   }
 
   useEffect(() => {
+    getMessages();
+  }, [selectedContact]);
+
+  useEffect(() => {
     dispatch(fetchFriends())
-    testFriends()
   }, [])
 
   const filteredFriends = useMemo(() => {
@@ -271,14 +251,12 @@ export default function MessagesApp() {
     const q = query.trim().toLowerCase()
     return friends.filter((f: Friend) => f.username.toLowerCase().includes(q))
   }, [friends, query]);
-
-  console.log('filteredFriends:', filteredFriends)
-  console.log('friends:', friends)
+  console.log('messages:', messages)
 
   return (
     <View style={{ flex: 1 }}>
       {selectedContact ? (
-        <ChatScreen contact={selectedContact} onBack={() => setSelectedContact(null)} />
+        <ChatScreen messages={messages} contact={selectedContact} onBack={() => setSelectedContact(null)} />
       ) : (
         <ContactsScreen contacts={friends} filteredFriends={filteredFriends} onSelect={setSelectedContact} />
       )}
