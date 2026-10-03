@@ -16,9 +16,7 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
-
-// TODO: point this at your backend (e.g. via react-native-config, app.json "extra", or an env file)
-const API_URL = 'http://10.36.40.37:5000';
+import { API_URL } from './utils';
 
 type FocusedField = 'emailOrUsername' | 'password' | null;
 

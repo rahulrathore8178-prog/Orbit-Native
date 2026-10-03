@@ -4,7 +4,7 @@ import { Image, Text, TouchableOpacity, View } from 'react-native'
 
 // Base URL for images when backend returns a relative path.
 // TODO: move to shared config if needed.
-const BASE_URL = 'http://10.36.40.37:5000'
+const BASE_URL = 'http://10.249.175.37:5000'
 
 type PostcardProps = {
     content: string

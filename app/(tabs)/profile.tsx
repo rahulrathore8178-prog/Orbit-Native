@@ -11,7 +11,7 @@ import { RootState } from '@/redux/store'
 import axios from 'axios'
 import { router, useLocalSearchParams, useNavigation } from 'expo-router'
 import { useDispatch, useSelector } from 'react-redux'
-import { API_URL } from './home'
+import { API_URL } from '../utils'
 import { Settings } from 'lucide-react-native'
 import { fetchFriends } from '@/redux/slice/friends'
 
@@ -185,9 +185,6 @@ export default function Profile() {
 
   return (
     <>
-      <Text className="text-gray-400 px-4 pt-14 bg-black text-xl font-bold text-center">
-        Your ORBI8 Profile
-      </Text>
       <ScrollView className="flex-1 bg-black" contentContainerStyle={{ paddingBottom: 48 }}>
         {/* Top navy gradient — fades into the ScrollView's own black background,
           so no separate full-page overlay is needed below it. */}
@@ -198,7 +195,7 @@ export default function Profile() {
         />
 
         {/* Header */}
-          <View className="px-4 pt-10 pb-2">
+          <View className="px-4 pt-5 pb-2">
             <View className="flex-row items-start gap-4">
               <Pressable
                 onPress={isOwnProfile ? handleAvatarPick : undefined}

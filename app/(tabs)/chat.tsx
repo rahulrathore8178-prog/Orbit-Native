@@ -17,7 +17,7 @@ import {
 } from 'react-native'
 import Animated, { FadeInUp, SlideInRight } from 'react-native-reanimated'
 import { useSelector } from 'react-redux'
-import { API_URL } from './home'
+import { API_URL } from '../utils'
 
 // ---------- Sample data ----------
 
@@ -78,7 +78,7 @@ function ContactsScreen({
 
   return (
     <View style={{ flex: 1 }} className="flex-1 bg-black pt-14">
-      <Text className="text-white text-2xl font-bold px-5 pb-4">Messages</Text>
+      <Text className="text-white text-center text-2xl font-bold px-5 pb-4">Messages</Text>
       <FlatList
         data={data}
         keyExtractor={(c) => c._id}

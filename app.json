@@ -8,7 +8,6 @@
     "scheme": "orbitnative",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-    
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
@@ -47,7 +46,16 @@
             "backgroundColor": "#000000"
           }
         }
-      ]
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow $(PRODUCT_NAME) to use your location to find people nearby."
+        }
+      ],
+      "expo-video",
+      "expo-audio",
+      "expo-font"
     ],
     "experiments": {
       "typedRoutes": true,

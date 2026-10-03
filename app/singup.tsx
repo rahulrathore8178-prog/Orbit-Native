@@ -96,7 +96,7 @@ export default function SignUpScreen() {
     };
 
     const handleBackToLogin = () => {
-        navigation.navigate('Login');
+        router.replace('/');
     };
 
     return (
@@ -105,13 +105,13 @@ export default function SignUpScreen() {
             <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
                 <View style={styles.container}>
                     <View style={styles.card}>
-                    <Pressable
-                        onPress={() => router.push('/')}
-                        hitSlop={8}
-                        className="h-9 w-9 items-center justify-center rounded-full bg-white/5 active:bg-white/10"
-                    >
-                        <ChevronLeft style={{ backgroundColor: 'transparent' }}  size={20} color="#ffffff" />
-                    </Pressable>
+                        <Pressable
+                            onPress={() => router.push('/')}
+                            hitSlop={8}
+                            className="h-9 w-9 items-center justify-center rounded-full bg-white/5 active:bg-white/10"
+                        >
+                            <ChevronLeft style={{ backgroundColor: 'transparent' }} size={20} color="#ffffff" />
+                        </Pressable>
                         <Text style={styles.title}>Create Account</Text>
                         <Text style={styles.subtitle}>Sign up to get started</Text>
 
