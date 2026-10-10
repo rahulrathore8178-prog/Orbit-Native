@@ -8,7 +8,6 @@
     "scheme": "orbitnative",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-
     "android": {
       "package": "com.orb8.app",
       "adaptiveIcon": {
@@ -27,6 +26,7 @@
       ]
     },
     "ios": {
+      "bundleIdentifier": "com.orb8.app",
       "supportsTablet": true,
       "infoPlist": {
         "NSAppTransportSecurity": {
