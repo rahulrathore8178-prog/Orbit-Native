@@ -1,10 +1,9 @@
-import { Tabs } from 'expo-router';
-import React from 'react';
 import { HapticTab } from '@/components/haptic-tab';
-import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { Brain, ChartArea, Home, MessageCircle, PersonStanding, Search } from 'lucide-react-native';
+import { Stack, Tabs } from 'expo-router';
+import { Brain, ChartArea, Home, MessageCircle, Search } from 'lucide-react-native';
+import React from 'react';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
@@ -54,7 +53,7 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="profile"
+        name="profile"  
         options={{
           title: 'Profile',
           headerTitle: 'Your Orbital Profile',      // override just the header text

@@ -3,7 +3,7 @@ import { RootState, useAppDispatch } from "@/redux/store";
 import React from "react";
 import { View, Text, FlatList, Pressable, ActivityIndicator } from "react-native";
 import { useSelector } from "react-redux";
-import { API_URL } from "../../utils";
+import { API_URL } from "../../app/utils";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 // import { AppDispatch, RootState } from "../store/store";

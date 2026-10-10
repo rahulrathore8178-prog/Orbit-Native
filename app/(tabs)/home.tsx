@@ -1,3 +1,4 @@
+// import { router } from '@/.expo/types/router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
@@ -5,6 +6,7 @@ import { useEvent } from 'expo';
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
+import { router } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -18,6 +20,7 @@ import {
     useWindowDimensions,
     View,
 } from 'react-native';
+import SideDrawer, { DrawerItemKey } from '../../components/sideDrawer/sideDrawer';
 import { API_URL, BASE_IMAGE_URL, getDisplayImageUrl } from '../utils';
 
 // ---------------------------------------------------------------------------
@@ -660,6 +663,54 @@ const toPostcardProps = (post: ApiPost): PostcardProps => ({
 export default function HomeScreen() {
     const [posts, setPosts] = useState<PostcardProps[]>([]);
     const [refreshing, setRefreshing] = useState(false);
+    const [drawerOpen, setDrawerOpen] = useState(false);
+    const [darkMode, setDarkMode] = useState(true);
+    // const [currentUser, setCurrentUser] = useState(null);
+    type StoredUser = {
+        id?: string;
+        username?: string;
+        email?: string;
+        avatarUrl?: string;
+        profilePic?: string;
+    };
+
+    const handleSelect = (key: DrawerItemKey) => {
+        setDrawerOpen(false);
+
+        if (key === 'orbitals') {
+            // wait for the drawer's 240ms slide-out, so the push doesn't collide
+            // with the still-mounted Modal (iOS can swallow it otherwise)
+            setTimeout(() => router.push('/orbital'), 260);
+            return;
+        }
+
+        // other keys: router.push(...) as you add their pages
+    };
+
+    const [currentUser, setCurrentUser] = useState<StoredUser | null>(null);
+
+    useEffect(() => {
+        const loadCurrentUser = async () => {
+            try {
+                const raw = await AsyncStorage.getItem('user');
+                setCurrentUser(raw ? JSON.parse(raw) : null);
+            } catch (error) {
+                console.error('Unable to load current user:', error);
+                setCurrentUser(null);
+            }
+        };
+
+        loadCurrentUser();
+    }, []);
+
+    // const currentUser = getStoredUser();
+    console.log('Current user:', currentUser);
+
+    // const handleSelect = (key: DrawerItemKey) => {
+    //     setDrawerOpen(false);
+    //     // router.push(...) per key, e.g.
+    //     // if (key === 'profile') router.push('/profile');
+    // };
 
     const loadPosts = async () => {
         try {
@@ -682,6 +733,7 @@ export default function HomeScreen() {
         loadPosts();
     }, []);
 
+
     const refreshPosts = async () => {
         setRefreshing(true);
         await loadPosts();
@@ -693,14 +745,26 @@ export default function HomeScreen() {
 
     return (
         <View style={{ flex: 1, backgroundColor: '#000' }}>
-            <Pressable
-                onPress={pressed}
-                className="mt-2 px-5 pb-4"
-            >
-                <Text className="text-center text-2xl font-bold text-white">
-                    Orb8
-                </Text>
-            </Pressable>
+            <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 8 }}>
+                <Pressable
+                    onPress={() => setDrawerOpen(true)}
+                    hitSlop={8}
+                    accessibilityLabel="Open menu"
+                    style={{ width: 36 }}
+                >
+                    <Image
+                        source={{ uri: currentUser?.profilePic }}
+                        style={{ width: 36, height: 36, borderRadius: 18 }}
+                    />
+                </Pressable>
+
+                <Pressable onPress={pressed} className="flex-1 mt-2 p-4">
+                    <Text className="text-center text-2xl font-bold text-white">Orb8</Text>
+                </Pressable>
+
+                <View style={{ width: 36 }} />
+            </View>
+
             <FlatList
                 data={posts}
                 keyExtractor={(post) => post.id}
@@ -714,6 +778,21 @@ export default function HomeScreen() {
                         No posts yet.
                     </Text>
                 }
+            />
+
+            <SideDrawer
+                visible={drawerOpen}
+                onClose={() => setDrawerOpen(false)}
+                user={{
+                    name: 'Vivek Mandal',
+                    handle: 'MOGAMBOGAMING18',
+                    avatar: { uri: currentUser?.profilePic },
+                    following: 3,
+                    followers: 0,
+                }}
+                onSelect={handleSelect}
+                darkMode={darkMode}
+                onToggleDarkMode={setDarkMode}
             />
         </View>
     );

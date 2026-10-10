@@ -89,17 +89,21 @@ export default function LoginScreen() {
             );
             // No `window` on native — DeviceEventEmitter stands in for the browser's
             // custom-event broadcast. (For anything bigger, Context/Zustand/Redux is more idiomatic.)
-                        DeviceEventEmitter.emit('auth:user-updated');
-                        console.log('clicked login')
-                        console.log('Login successful:', res.data);
+            DeviceEventEmitter.emit('auth:user-updated');
+            console.log('clicked login')
+            console.log('Login successful:', res.data);
 
-                        // persist token for subsequent API calls
-                        if (res.data?.token) {
-                            await AsyncStorage.setItem('token', res.data.token);
-                        }
+            // persist token for subsequent API calls
+            if (res.data?.token) {
+                await AsyncStorage.setItem('token', res.data.token);
+            }
 
-                        setLoading(false);
-                        router.replace('/home');
+            if (res.data?.user) {
+                await AsyncStorage.setItem('user', JSON.stringify(res.data.user));
+            }
+
+            setLoading(false);
+            router.replace('/home');
         } catch (err: any) {
             setErrorMsg(
                 err.response?.data?.message ||
@@ -119,13 +123,13 @@ export default function LoginScreen() {
         return (
             <SafeAreaView style={styles.safeArea}>
                 <StatusBar barStyle="light-content" backgroundColor="#121214" />
-                <View style={[styles.flex, { justifyContent: 'center', alignItems: 'center' }]}> 
+                <View style={[styles.flex, { justifyContent: 'center', alignItems: 'center' }]}>
                     <ActivityIndicator size="large" color={ACCENT_BLUE} />
                 </View>
             </SafeAreaView>
         );
     }
-    
+
     return (
         <SafeAreaView style={styles.safeArea}>
             <StatusBar barStyle="light-content" backgroundColor="#121214" />
