@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Orbit-native",
-    "slug": "Orbit-native",
+    "slug": "orbit",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
