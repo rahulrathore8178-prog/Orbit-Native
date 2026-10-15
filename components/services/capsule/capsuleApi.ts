@@ -1,7 +1,7 @@
-import axios from 'axios';
+import { API_URL } from '@/lib/utils';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import axios from 'axios';
 import type { Capsule, CapsuleComment, CapsuleFeed, CapsuleGroup, CapsuleUser } from '../../../constants/capsule/types';
-import { API_URL } from '@/app/utils';
 
 // Each function returns the path for that call. Left empty on purpose.
 // e.g. like: (id) => `/capsules/${id}/like`

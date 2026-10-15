@@ -1,4 +1,4 @@
-import { API_URL } from "@/app/utils";
+import { API_URL } from "@/lib/utils";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 import axios from "axios";

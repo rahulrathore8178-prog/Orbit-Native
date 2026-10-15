@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { API_URL } from '@/lib/utils';
 import axios from 'axios';
-import { API_URL } from '@/app/utils';
+import { useCallback, useEffect, useState } from 'react';
 
 // Backend returns http://localhost:5000/... for profile pics, which a phone can't reach
 export const resolveUrl = (url?: string | null) =>

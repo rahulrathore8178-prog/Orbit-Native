@@ -1,4 +1,4 @@
-import { API_URL } from '@/app/utils';
+import { API_URL } from '@/lib/utils';
 import { setUserId } from '@/redux/slice/profileSlice';
 import { useAppDispatch } from '@/redux/store';
 import AsyncStorage from '@react-native-async-storage/async-storage';

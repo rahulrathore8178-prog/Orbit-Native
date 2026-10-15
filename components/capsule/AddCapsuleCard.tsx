@@ -21,8 +21,13 @@ function AddCapsuleCardBase({ onPress }: { onPress: () => void }) {
         justifyContent: 'center',
       }}
     >
-      <View pointerEvents="none">
-        <NeoButton icon="add" size={36} accessibilityLabel="Add" />
+      <View>
+        <NeoButton
+          icon="add"
+          size={36}
+          accessibilityLabel="Add"
+          disabled
+        />
       </View>
       <Text className="mt-2 text-[12px] text-neutral-500">Add</Text>
     </Pressable>

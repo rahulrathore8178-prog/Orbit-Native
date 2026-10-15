@@ -1,24 +1,21 @@
+import { ChatScreen } from '@/components/chats/ChatsScreen'
 import '@/global.css'
 import { fetchFriends, Friend } from '@/redux/slice/friends'
 import { RootState, useAppDispatch } from '@/redux/store'
-import { Feather, Ionicons } from '@expo/vector-icons'
+import { Ionicons } from '@expo/vector-icons'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import axios from 'axios'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  FlatList,
-  Image,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  Text,
-  TextInput,
-  View,
+    FlatList,
+    Image,
+    Pressable,
+    Text,
+    View
 } from 'react-native'
-import Animated, { FadeInUp, FadeOutUp, SlideInRight } from 'react-native-reanimated'
+import Animated, { FadeInUp, FadeOutUp } from 'react-native-reanimated'
 import { useSelector } from 'react-redux'
-import { API_URL, stripHost } from '../utils'
-import { ChatScreen } from '@/components/chats/ChatsScreen'
+import { API_URL } from '../../lib/utils'
 
 // ---------- Types ----------
 

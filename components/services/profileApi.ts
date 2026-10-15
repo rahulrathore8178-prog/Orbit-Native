@@ -1,9 +1,8 @@
-import { useCallback } from 'react';
-import { Alert, Platform } from 'react-native';
-import axios, { AxiosRequestConfig } from 'axios';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_URL } from '@/app/utils';
 import { Friend, ProfilePost, ProfileUser } from '@/components/profile/profile';
+import { API_URL } from '@/lib/utils';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import axios, { AxiosRequestConfig } from 'axios';
+import { Platform } from 'react-native';
 import { resolveUri, toFriend, toProfilePost, toProfileUser } from './profileMappers';
 
 /* -------------------------------------------------------------------------- */

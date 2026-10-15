@@ -1,27 +1,40 @@
-import React, { useEffect, useRef, useState, ReactNode } from "react";
+import { useOpenProfile } from "@/hooks/useOpenProfile";
+import { AppDispatch } from "@/redux/store";
 import {
-    View, Text, TextInput, Pressable, ScrollView, Image, StyleSheet, Platform,
-    KeyboardAvoidingView, useWindowDimensions, StyleProp, ViewStyle,
-    Keyboard,
-} from "react-native";
-import Animated, {
-    useSharedValue, useAnimatedStyle, withTiming, withDelay, withRepeat, withSequence,
-    Easing, useReducedMotion,
-} from "react-native-reanimated";
-import Svg, { Circle, Path, Ellipse } from "react-native-svg";
-import { LinearGradient } from "expo-linear-gradient";
-import { BlurView } from "expo-blur";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+    Sora_300Light, Sora_400Regular, Sora_500Medium, Sora_600SemiBold,
+    useFonts,
+} from "@expo-google-fonts/sora";
 import { useNavigation } from "@react-navigation/native";
-import { useDispatch, useSelector } from "react-redux";
 import { createAsyncThunk } from "@reduxjs/toolkit";
 import axios from "axios";
+import { BlurView } from "expo-blur";
+import { LinearGradient } from "expo-linear-gradient";
+import React, { ReactNode, useEffect, useRef, useState } from "react";
 import {
-    useFonts, Sora_300Light, Sora_400Regular, Sora_500Medium, Sora_600SemiBold,
-} from "@expo-google-fonts/sora";
-import { API_URL, getAuthHeaders } from "../utils";
-import { AppDispatch, RootState } from "@/redux/store";
-import { useOpenProfile } from "@/hooks/useOpenProfile";
+    Image,
+    Keyboard,
+    KeyboardAvoidingView,
+    Platform,
+    Pressable, ScrollView,
+    StyleProp,
+    StyleSheet,
+    Text, TextInput,
+    useWindowDimensions,
+    View,
+    ViewStyle,
+} from "react-native";
+import Animated, {
+    Easing,
+    useAnimatedStyle,
+    useReducedMotion,
+    useSharedValue,
+    withDelay, withRepeat, withSequence,
+    withTiming,
+} from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Svg, { Circle, Ellipse, Path } from "react-native-svg";
+import { useDispatch } from "react-redux";
+import { API_URL, getAuthHeaders } from "../../lib/utils";
 
 /* ---- adjust these imports to your project ---- */
 // import { apiUrl, getAuthHeaders } from "../config/api";

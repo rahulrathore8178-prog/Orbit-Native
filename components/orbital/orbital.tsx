@@ -1,4 +1,9 @@
 // import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { API_URL, getAuthHeaders } from '@/lib/utils';
+import axios, { type Method } from 'axios';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { ChevronLeft, Globe, Lock } from 'lucide-react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     Alert,
     Image,
@@ -14,8 +19,6 @@ import {
     View,
     ViewStyle,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useRouter } from 'expo-router';
 import Animated, {
     Easing,
     interpolateColor,
@@ -25,11 +28,8 @@ import Animated, {
     withDelay,
     withTiming,
 } from 'react-native-reanimated';
-import { ChevronLeft, Globe, Lock } from 'lucide-react-native';
-import axios, { type Method } from 'axios';
-import { API_URL, getAuthHeaders } from '@/app/utils';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { OrbitalRole, OrbitalVisibility, resolveUrl } from './orbitalData';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 /* ---------- types ---------- */
 type UserLite = {

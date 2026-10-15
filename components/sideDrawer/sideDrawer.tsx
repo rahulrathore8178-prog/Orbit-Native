@@ -6,7 +6,6 @@ import {
     Bot,
     LifeBuoy,
     LucideIcon,
-    MenuIcon,
     Moon,
     Orbit,
     Settings,
@@ -17,15 +16,13 @@ import React, { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
     Animated,
     Easing,
-    Image,
-    ImageSourcePropType,
     Platform,
     Pressable,
     ScrollView,
     StyleSheet,
     Text,
     View,
-    useWindowDimensions,
+    useWindowDimensions
 } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Reanimated, {
@@ -38,7 +35,6 @@ import Reanimated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, GlassPanel, NeoView } from '../ui/neo';
-import { resolveImg } from '@/app/utils';
 
 export type DrawerItemKey =
     | 'profile'

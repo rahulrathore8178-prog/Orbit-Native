@@ -2,16 +2,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { capsuleApi } from '../../components/services/capsule/capsuleApi';
 import type { Capsule, CapsuleFeed, CapsuleGroup } from '../../constants/capsule/types';
 
-export function useCapsules() {
+export function useCapsules(enabled = true) {
   const [feed, setFeed] = useState<CapsuleFeed | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const feedRef = useRef<CapsuleFeed | null>(null);
   feedRef.current = feed;
 
-const load = useCallback(async () => {
-  console.log('[capsules] load start');
-  try {
+  
+  const load = useCallback(async () => {
+    console.log('[capsules] load start');
+    try {
     setError(null);
     const data = await capsuleApi.getFeed();
     console.log('[capsules] loaded', data.me?.id, data.mine.length, data.groups.length);
@@ -23,6 +24,9 @@ const load = useCallback(async () => {
     setLoading(false);
   }
 }, []);
+useEffect(() => {
+if (enabled) load();
+}, [enabled, load]);
 
   const patch = useCallback((id: string, fn: (c: Capsule) => Capsule) => {
     setFeed((prev) =>

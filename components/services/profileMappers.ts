@@ -1,5 +1,5 @@
-import { API_URL } from '@/app/utils'; // adjust to wherever you export API_URL today
 import { Friend, FriendStatus, ProfilePost, ProfileUser } from '@/components/profile/profile';
+import { API_URL } from '@/lib/utils'; // adjust to wherever you export API_URL today
 
 export const resolveUri = (uri?: string) =>
     uri ? (uri.startsWith('http') ? uri : `${API_URL}${uri.startsWith('/') ? '' : '/'}${uri}`) : undefined;

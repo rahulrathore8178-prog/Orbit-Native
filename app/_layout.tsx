@@ -10,22 +10,23 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 SplashScreen.preventAutoHideAsync();
 export default function RootLayout() {
-
   const [appReady, setAppReady] = useState(false);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        await AsyncStorage.getItem('token'); // put your real startup work here (fonts, auth check)
-        await new Promise((r) => setTimeout(r, 800)); // minimum show time, avoids a flicker
-      } finally {
-        setAppReady(true);
-      }
-    })();
-  }, []);
-  // if (!appReady) {
-  //   return <OrbitLoader />;
-  // }
+useEffect(() => {
+  (async () => {
+    try {
+      await AsyncStorage.getItem("token");
+    } finally {
+      setAppReady(true);
+      await SplashScreen.hideAsync();
+    }
+  })();
+}, []);
+
+  if (!appReady) {
+    return <OrbitLoader />;
+  }
+  
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <Provider store={store}>

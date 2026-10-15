@@ -1,10 +1,10 @@
+import { resolveImg } from '@/lib/utils';
 import { Heart, Trash2 } from 'lucide-react-native';
 import React, { useRef, useState } from 'react';
 import { Animated, Image, Pressable, Text, View } from 'react-native';
 import { COLORS, GlassPanel } from '../ui/neo';
 import { Comment, timeAgo } from './commentsApi';
 import { Avatar, FadeIn, ImageViewer, VideoTap, VoicePlayer } from './CommentUI';
-import { resolveImg } from '@/app/utils';
 
 function LikeButton({ liked, count, onPress }: { liked: boolean; count: number; onPress: () => void }) {
     const scale = useRef(new Animated.Value(1)).current;

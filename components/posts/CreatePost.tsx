@@ -1,4 +1,4 @@
-import { API_URL, getAuthHeaders } from '@/app/utils';
+import { API_URL, getAuthHeaders } from '@/lib/utils';
 import axios from 'axios';
 import {
     AudioModule,

@@ -1,11 +1,11 @@
 // app/discover.tsx
 import { RootState, useAppDispatch } from "@/redux/store";
-import React from "react";
-import { View, Text, FlatList, Pressable, ActivityIndicator } from "react-native";
-import { useSelector } from "react-redux";
-import { API_URL } from "../../app/utils";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
+import React from "react";
+import { ActivityIndicator, FlatList, Pressable, Text, View } from "react-native";
+import { useSelector } from "react-redux";
+import { API_URL } from "../../lib/utils";
 // import { AppDispatch, RootState } from "../store/store";
 // import { discoverNearbyUsers } from "../store/discoverSlice";
 // import { NearbyUser } from "../types/discover";

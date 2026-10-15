@@ -1,48 +1,46 @@
 // import { router } from '@/.expo/types/router';
+import { CapsuleTray } from '@/components/capsule/CapsuleTray';
+import { CapsuleViewer } from '@/components/capsule/CapsuleViewer';
+import CommentsSheet from '@/components/comments/CommentsSheet';
+import CreatePost from '@/components/posts/CreatePost';
+import type { ShareTarget } from '@/components/posts/ShareModal';
+import ShareModal from '@/components/posts/ShareModal';
+import { GlassPanel } from '@/components/ui/neo';
+import OrbitLoader from '@/components/ui/OrbitLoader';
+import { CAPSULE } from '@/constants/capsule/constants';
+import { Rect } from '@/constants/capsule/types';
+import { useCapsules } from '@/hooks/capsule/useCapsules';
+import { useCollapsibleTray } from '@/hooks/capsule/useCollapsibleTray';
+import { useHorizontalSwipe } from '@/hooks/useHorizontalSwipe';
+import { useOpenProfile } from '@/hooks/useOpenProfile';
+import { useTabNavigation } from '@/hooks/useTabNavigation';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useIsFocused } from '@react-navigation/native';
 import axios from 'axios';
-import { useEvent } from 'expo';
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { BlurView } from 'expo-blur';
+import * as Haptics from 'expo-haptics'; // optional: npx expo install expo-haptics
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect, useRouter } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
+import { MenuIcon } from 'lucide-react-native';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import * as Haptics from 'expo-haptics'; // optional: npx expo install expo-haptics
 import {
     Alert,
     Animated,
-    FlatList,
     Image,
     Platform,
     Pressable,
     Text,
     TouchableOpacity,
     useWindowDimensions,
-    View,
+    View
 } from 'react-native';
 import Reanimated from 'react-native-reanimated';
-import SideDrawer, { DrawerItemKey } from '../../components/sideDrawer/sideDrawer';
-import { API_URL, BASE_IMAGE_URL, getDisplayImageUrl, resolveImg } from '../utils';
-import CreatePost from '@/components/posts/CreatePost';
-import CommentsSheet from '@/components/comments/CommentsSheet';
-import { useIsFocused } from '@react-navigation/native';
-import OrbitLoader from '@/components/ui/OrbitLoader';
-import { useOpenProfile } from '@/hooks/useOpenProfile';
-import { GlassPanel } from '@/components/ui/neo';
-import { useTabNavigation } from '@/hooks/useTabNavigation';
-import { useHorizontalSwipe } from '@/hooks/useHorizontalSwipe';
-import ShareModal from '@/components/posts/ShareModal';
-import type { ShareTarget } from '@/components/posts/ShareModal';
-import { MenuIcon } from 'lucide-react-native';
-import { useCollapsibleTray } from '@/hooks/capsule/useCollapsibleTray';
-import { Rect } from '@/constants/capsule/types';
-import { useCapsules } from '@/hooks/capsule/useCapsules';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { CAPSULE } from '@/constants/capsule/constants';
-import { CapsuleTray } from '@/components/capsule/CapsuleTray';
-import { CapsuleViewer } from '@/components/capsule/CapsuleViewer';
+import SideDrawer, { DrawerItemKey } from '../../components/sideDrawer/sideDrawer';
+import { API_URL, BASE_IMAGE_URL, getDisplayImageUrl, resolveImg } from '../../lib/utils';
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -186,6 +184,9 @@ const AvatarInitial = ({ name, size = 36 }: { name?: string; size?: number }) =>
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
+const safe = (fn: () => void) => {
+    try { fn(); } catch { /* player already released */ }
+};
 
 const Postcard = ({
     id,
@@ -275,10 +276,10 @@ const Postcard = ({
 
         const HeartBurst = (
             <View pointerEvents="none" style={{ ...StyleSheetAbsolute, alignItems: 'center', justifyContent: 'center' }}>
-                <Reanimated.View style={{ opacity, transform: [{ scale }] }}>
+                <Animated.View style={{ opacity, transform: [{ scale }] }}>
                     <Ionicons name="heart" size={90} color="#fff"
                         style={{ textShadowColor: 'rgba(0,0,0,0.35)', textShadowRadius: 12 }} />
-                </Reanimated.View>
+                </Animated.View>
             </View>
         );
 
@@ -348,14 +349,11 @@ const Postcard = ({
         player.muted = true;
     });
 
-    useEffect(() => {
-        videoPlayer.muted = isVideoMuted;
-    }, [isVideoMuted, videoPlayer]);
-
-
     const toggleVideoPlay = useCallback(() => {
-        if (videoPlayer.playing) videoPlayer.pause();
-        else videoPlayer.play();
+        safe(() => {
+            if (videoPlayer.playing) videoPlayer.pause();
+            else videoPlayer.play();
+        });
     }, [videoPlayer]);
 
     // Video: single = play/pause, double = like
@@ -365,34 +363,27 @@ const Postcard = ({
 
     const isFocused = useIsFocused();
 
-    // 1. Player setup (runs once per player)
+    // Mute follows state
     useEffect(() => {
-        videoPlayer.loop = true;
-    }, [videoPlayer]);
-
-    // 2. Mute follows state
-    useEffect(() => {
-        videoPlayer.muted = isVideoMuted;
+        safe(() => { videoPlayer.muted = isVideoMuted; });
     }, [videoPlayer, isVideoMuted]);
 
-    // 3. Keep useState in sync with the real player state
+    // Keep useState in sync with the real player state
     useEffect(() => {
-        setIsVideoPlaying(videoPlayer.playing); // initial value
+        safe(() => setIsVideoPlaying(videoPlayer.playing));
         const sub = videoPlayer.addListener('playingChange', ({ isPlaying }) => {
             setIsVideoPlaying(isPlaying);
         });
-        return () => sub.remove();
+        return () => safe(() => sub.remove());
     }, [videoPlayer]);
 
-    // 4. Autoplay when >= 70% visible, pause the moment it drops below
+    // Autoplay when visible, pause the moment it isn't
     useEffect(() => {
-        if (isVisible && isFocused) videoPlayer.play();
-        else videoPlayer.pause();
-    }, [isVisible, isFocused, videoPlayer]);
+        if (!hasVideo) return;
+        safe(() => (isVisible && isFocused ? videoPlayer.play() : videoPlayer.pause()));
+    }, [isVisible, isFocused, videoPlayer, hasVideo]);
 
-    // 5. Pause on unmount
-    useEffect(() => () => { videoPlayer.pause(); }, [videoPlayer]);
-
+    // (the old "Pause on unmount" effect is deleted on purpose)
 
     // -- audio (voice note) ---------------------------------------------------
     const audioPlayer = useAudioPlayer(audioUri ?? null);
@@ -403,12 +394,14 @@ const Postcard = ({
     const audioProgress = audioDuration > 0 ? Math.min(100, (audioCurrentTime / audioDuration) * 100) : 0;
 
     const toggleAudioPlay = () => {
-        if (isAudioPlaying) {
-            audioPlayer.pause();
-        } else {
-            if (audioStatus?.didJustFinish) audioPlayer.seekTo(0);
-            audioPlayer.play();
-        }
+        safe(() => {
+            if (isAudioPlaying) {
+                audioPlayer.pause();
+            } else {
+                if (audioStatus?.didJustFinish) audioPlayer.seekTo(0);
+                audioPlayer.play();
+            }
+        });
     };
 
     const waveform = useMemo(() => buildWaveform(hashSeed(id)), [id]);
@@ -416,8 +409,8 @@ const Postcard = ({
     // -- pause offscreen media --------------------------------------------------
     useEffect(() => {
         if (!isVisible) {
-            videoPlayer.pause();
-            audioPlayer.pause();
+            safe(() => videoPlayer.pause());
+            safe(() => audioPlayer.pause());
         }
     }, [isVisible, videoPlayer, audioPlayer]);
 
@@ -714,13 +707,13 @@ const Postcard = ({
                             activeOpacity={0.75}
                             style={{ flexDirection: 'row', alignItems: 'center', marginRight: 22 }}
                         >
-                            <Reanimated.View style={{ transform: [{ scale: heartScale }], marginRight: 6 }}>
+                            <Animated.View style={{ transform: [{ scale: heartScale }], marginRight: 6 }}>
                                 <Ionicons
                                     name={liked ? 'heart' : 'heart-outline'}
                                     size={19}
                                     color={liked ? '#fb7185' : 'rgba(255,255,255,0.9)'}
                                 />
-                            </Reanimated.View>
+                            </Animated.View>
                             <Text style={{ color: 'rgba(255,255,255,0.9)', fontSize: 12.5 }}>{formatCount(likeCount)}</Text>
                         </TouchableOpacity>
 
@@ -819,7 +812,7 @@ export default function HomeScreen() {
     // inside the component:
     const router = useRouter();
     const insets = useSafeAreaInsets();
-    const capsules = useCapsules();
+    // const capsules = useCapsules(!!currentUser?.id);
     // console.log('capsules', capsules);
     const [headerH, setHeaderH] = useState(insets.top + 80); // corrected by onLayout
     const [viewer, setViewer] = useState<{ userId: string; origin: Rect } | null>(null);
@@ -827,12 +820,12 @@ export default function HomeScreen() {
 
     // refetch capsules when returning from the create screen (skips first focus)
     const firstFocus = useRef(true);
-    useFocusEffect(
-        useCallback(() => {
-            if (firstFocus.current) firstFocus.current = false;
-            else capsules.reload();
-        }, [capsules.reload]), // eslint-disable-line react-hooks/exhaustive-deps
-    );
+    // useFocusEffect(
+    //     useCallback(() => {
+    //         if (firstFocus.current) firstFocus.current = false;
+    //         else capsules.reload();
+    //     }, [capsules.reload]), // eslint-disable-line react-hooks/exhaustive-deps
+    // );
 
     /* ------------------------------ share ------------------------------ */
 
@@ -951,7 +944,7 @@ export default function HomeScreen() {
     return (
         <View style={{ flex: 1, backgroundColor: '#000' }} {...swipe.panHandlers}>
             {/* feed: padding makes room for the header + tray; onScroll drives the tray */}
-            <Reanimated.FlatList
+            <Animated.FlatList
                 data={posts}
                 keyExtractor={keyExtractor}
                 renderItem={renderItem}
@@ -962,7 +955,7 @@ export default function HomeScreen() {
                 refreshing={refreshing}
                 onRefresh={() => {
                     refreshPosts();
-                    capsules.reload();
+                    // capsules.reload();
                 }}
                 progressViewOffset={headerH + TRAY_H}
                 onScroll={onScroll}
@@ -978,7 +971,7 @@ export default function HomeScreen() {
             />
 
             {/* capsule tray: sits under the header, slides up behind it on scroll */}
-            <Reanimated.View
+            {/* <Animated.View
                 style={[
                     { position: 'absolute', top: headerH, left: 0, right: 0, height: TRAY_H, zIndex: 10, elevation: 10 },
                     trayStyle,
@@ -992,7 +985,7 @@ export default function HomeScreen() {
                         onOpen={(userId, origin) => setViewer({ userId, origin })}
                     />
                 </GlassPanel>
-            </Reanimated.View>
+            </Animated.View> */}
 
             {/* header: always visible, above the tray */}
             <View
@@ -1052,7 +1045,7 @@ export default function HomeScreen() {
                 onClose={closeShare}
             />
 
-            <CapsuleViewer
+            {/* <CapsuleViewer
                 visible={!!viewer && !!capsules.me}
                 groups={capsules.groups}
                 startUserId={viewer?.userId ?? ''}
@@ -1064,7 +1057,7 @@ export default function HomeScreen() {
                 onToggleSave={capsules.toggleSave}
                 onDelete={capsules.remove}
                 onCommentAdded={capsules.bumpComments}
-            />
+            /> */}
 
             <SideDrawer
                 visible={drawerOpen}

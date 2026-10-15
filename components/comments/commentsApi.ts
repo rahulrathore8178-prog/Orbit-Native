@@ -1,7 +1,7 @@
+import { API_URL, getAuthHeaders } from '@/lib/utils';
+import axios from 'axios';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform } from 'react-native';
-import axios from 'axios';
-import { API_URL, getAuthHeaders } from '@/app/utils';
 import { resolveUrl } from '../orbital/orbitalData';
 
 /* ---------- types ---------- */

@@ -16,7 +16,7 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
-import { API_URL } from './utils';
+import { API_URL } from '../lib/utils';
 
 type FocusedField = 'emailOrUsername' | 'password' | null;
 
@@ -58,7 +58,7 @@ export default function LoginScreen() {
             try {
                 const token = await AsyncStorage.getItem('token');
                 if (mounted && token) {
-                    router.replace('/home');
+                    router.replace('/(tabs)/home');
                     return;
                 }
             } catch (e) {

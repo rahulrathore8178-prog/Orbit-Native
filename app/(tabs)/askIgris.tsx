@@ -1,21 +1,40 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState, ReactNode } from "react";
-import {
-    View, Text, TextInput, Pressable, ScrollView, Image, StyleSheet, BackHandler, Platform,
-    KeyboardAvoidingView, useWindowDimensions, StatusBar, StyleProp, ViewStyle, NativeSyntheticEvent, TextInputContentSizeChangeEventData,
-} from "react-native";
-import Animated, {
-    useSharedValue, useAnimatedStyle, useAnimatedProps, withTiming, withDelay, withRepeat, withSequence,
-    interpolate, interpolateColor, Easing, useReducedMotion, LinearTransition, FadeOut,
-} from "react-native-reanimated";
-import Svg, { Circle, Ellipse, G, Line, Path, Defs, RadialGradient, Stop } from "react-native-svg";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { BlurView } from "expo-blur";
 import * as Clipboard from "expo-clipboard";
-import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as ImagePicker from "expo-image-picker";
+import { ArrowUp, Check, Copy, FileText, Image as ImageIcon, Menu, MessageSquare, Paperclip, Search, X } from "lucide-react-native";
+import React, { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+    BackHandler,
+    Image,
+    KeyboardAvoidingView,
+    NativeSyntheticEvent,
+    Platform,
+    Pressable, ScrollView,
+    StatusBar, StyleProp,
+    StyleSheet,
+    Text, TextInput,
+    TextInputContentSizeChangeEventData,
+    useWindowDimensions,
+    View,
+    ViewStyle,
+} from "react-native";
+import Animated, {
+    Easing,
+    FadeOut,
+    interpolate, interpolateColor,
+    LinearTransition,
+    useAnimatedProps,
+    useAnimatedStyle,
+    useReducedMotion,
+    useSharedValue,
+    withDelay, withRepeat, withSequence,
+    withTiming,
+} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Paperclip, Image as ImageIcon, FileText, X, ArrowUp, Copy, Check, Menu, Search, MessageSquare } from "lucide-react-native";
-import { API_URL } from "../utils";
+import Svg, { Circle, Defs, Ellipse, G, Line, Path, RadialGradient, Stop } from "react-native-svg";
+import { API_URL } from "../../lib/utils";
 
 /* =====================================================================
    SETUP (NativeWind v4): tailwind.config.js presets: [require("nativewind/preset")],
