@@ -17,7 +17,7 @@ export function CollapsibleCapsuleTray({ height, trayStyle, children }: Props) {
     <Animated.View
       style={[{ position: 'absolute', top: 0, left: 0, right: 0, height, zIndex: 10 }, trayStyle]}
     >
-      <GlassPanel edge="bottom" intensity={55} style={{ flex: 1, paddingTop: insets.top + 12 }}>
+      <GlassPanel edge="bottom" intensity={100} style={{ flex: 1, paddingTop: insets.top + 12, backdropFilter: 'blur(70px)' }}>
         {children}
       </GlassPanel>
     </Animated.View>

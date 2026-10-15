@@ -1,0 +1,39 @@
+diff --git a/app/(tabs)/home.tsx b/app/(tabs)/home.tsx
+index 04d8724..98da9c5 100644
+--- a/app/(tabs)/home.tsx
++++ b/app/(tabs)/home.tsx
+@@ -22,6 +22,7 @@ import {
+     useWindowDimensions,
+     View,
+ } from 'react-native';
++import Reanimated from 'react-native-reanimated';
+ import SideDrawer, { DrawerItemKey } from '../../components/sideDrawer/sideDrawer';
+ import { API_URL, BASE_IMAGE_URL, getDisplayImageUrl, resolveImg } from '../utils';
+ import CreatePost from '@/components/posts/CreatePost';
+@@ -942,7 +943,7 @@ useFocusEffect(
+     return (
+         <View style={{ flex: 1, backgroundColor: '#000' }} {...swipe.panHandlers}>
+             {/* feed: padding makes room for the header + tray; onScroll drives the tray */}
+-            <Animated.FlatList
++            <Reanimated.FlatList
+                 data={posts}
+                 keyExtractor={keyExtractor}
+                 renderItem={renderItem}
+@@ -969,7 +970,7 @@ useFocusEffect(
+             />
+ 
+             {/* capsule tray: sits under the header, slides up behind it on scroll */}
+-            <Animated.View
++            <Reanimated.View
+                 style={[
+                     { position: 'absolute', top: headerH, left: 0, right: 0, height: TRAY_H, zIndex: 10, elevation: 10 },
+                     trayStyle,
+@@ -983,7 +984,7 @@ useFocusEffect(
+                         onOpen={(userId, origin) => setViewer({ userId, origin })}
+                     />
+                 </GlassPanel>
+-            </Animated.View>
++            </Reanimated.View>
+ 
+             {/* header: always visible, above the tray */}
+             <View

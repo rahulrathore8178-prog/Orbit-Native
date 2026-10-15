@@ -22,6 +22,7 @@ import {
     useWindowDimensions,
     View,
 } from 'react-native';
+import Reanimated from 'react-native-reanimated';
 import SideDrawer, { DrawerItemKey } from '../../components/sideDrawer/sideDrawer';
 import { API_URL, BASE_IMAGE_URL, getDisplayImageUrl, resolveImg } from '../utils';
 import CreatePost from '@/components/posts/CreatePost';
@@ -274,10 +275,10 @@ const Postcard = ({
 
         const HeartBurst = (
             <View pointerEvents="none" style={{ ...StyleSheetAbsolute, alignItems: 'center', justifyContent: 'center' }}>
-                <Animated.View style={{ opacity, transform: [{ scale }] }}>
+                <Reanimated.View style={{ opacity, transform: [{ scale }] }}>
                     <Ionicons name="heart" size={90} color="#fff"
                         style={{ textShadowColor: 'rgba(0,0,0,0.35)', textShadowRadius: 12 }} />
-                </Animated.View>
+                </Reanimated.View>
             </View>
         );
 
@@ -713,13 +714,13 @@ const Postcard = ({
                             activeOpacity={0.75}
                             style={{ flexDirection: 'row', alignItems: 'center', marginRight: 22 }}
                         >
-                            <Animated.View style={{ transform: [{ scale: heartScale }], marginRight: 6 }}>
+                            <Reanimated.View style={{ transform: [{ scale: heartScale }], marginRight: 6 }}>
                                 <Ionicons
                                     name={liked ? 'heart' : 'heart-outline'}
                                     size={19}
                                     color={liked ? '#fb7185' : 'rgba(255,255,255,0.9)'}
                                 />
-                            </Animated.View>
+                            </Reanimated.View>
                             <Text style={{ color: 'rgba(255,255,255,0.9)', fontSize: 12.5 }}>{formatCount(likeCount)}</Text>
                         </TouchableOpacity>
 
@@ -815,23 +816,23 @@ export default function HomeScreen() {
     });
     const TRAY_H = CAPSULE.TRAY_ITEM_H + 24;
 
-// inside the component:
-const router = useRouter();
-const insets = useSafeAreaInsets();
-const capsules = useCapsules();
-console.log('capsules', capsules);
-const [headerH, setHeaderH] = useState(insets.top + 80); // corrected by onLayout
-const [viewer, setViewer] = useState<{ userId: string; origin: Rect } | null>(null);
-const { onScroll, trayStyle } = useCollapsibleTray(TRAY_H);
+    // inside the component:
+    const router = useRouter();
+    const insets = useSafeAreaInsets();
+    const capsules = useCapsules();
+    // console.log('capsules', capsules);
+    const [headerH, setHeaderH] = useState(insets.top + 80); // corrected by onLayout
+    const [viewer, setViewer] = useState<{ userId: string; origin: Rect } | null>(null);
+    const { onScroll, trayStyle } = useCollapsibleTray(TRAY_H);
 
-// refetch capsules when returning from the create screen (skips first focus)
-const firstFocus = useRef(true);
-useFocusEffect(
-  useCallback(() => {
-    if (firstFocus.current) firstFocus.current = false;
-    else capsules.reload();
-  }, [capsules.reload]), // eslint-disable-line react-hooks/exhaustive-deps
-);
+    // refetch capsules when returning from the create screen (skips first focus)
+    const firstFocus = useRef(true);
+    useFocusEffect(
+        useCallback(() => {
+            if (firstFocus.current) firstFocus.current = false;
+            else capsules.reload();
+        }, [capsules.reload]), // eslint-disable-line react-hooks/exhaustive-deps
+    );
 
     /* ------------------------------ share ------------------------------ */
 
@@ -895,7 +896,7 @@ useFocusEffect(
             }
         })();
     }, []);
-    console.log('Current user:', currentUser);
+    // console.log('Current user:', currentUser);
     const loadPosts = async () => {
         try {
             const token = await AsyncStorage.getItem('token');
@@ -906,7 +907,15 @@ useFocusEffect(
             const responsePosts = Array.isArray(response.data) ? response.data : response.data?.posts;
             setPosts(Array.isArray(responsePosts) ? responsePosts.map(toPostcardProps) : []);
         } catch (error) {
-            console.error('Error fetching feed posts:', error);
+            console.log('API_URL =', API_URL);
+            if (axios.isAxiosError(error)) {
+                console.log('feed failed', {
+                    url: error.config?.url,
+                    code: error.code,
+                    message: error.message,
+                    status: error.response?.status,
+                });
+            }
             setPosts([]);
         } finally {
             setLoading(false);
@@ -942,7 +951,7 @@ useFocusEffect(
     return (
         <View style={{ flex: 1, backgroundColor: '#000' }} {...swipe.panHandlers}>
             {/* feed: padding makes room for the header + tray; onScroll drives the tray */}
-            <Animated.FlatList
+            <Reanimated.FlatList
                 data={posts}
                 keyExtractor={keyExtractor}
                 renderItem={renderItem}
@@ -969,7 +978,7 @@ useFocusEffect(
             />
 
             {/* capsule tray: sits under the header, slides up behind it on scroll */}
-            <Animated.View
+            <Reanimated.View
                 style={[
                     { position: 'absolute', top: headerH, left: 0, right: 0, height: TRAY_H, zIndex: 10, elevation: 10 },
                     trayStyle,
@@ -983,7 +992,7 @@ useFocusEffect(
                         onOpen={(userId, origin) => setViewer({ userId, origin })}
                     />
                 </GlassPanel>
-            </Animated.View>
+            </Reanimated.View>
 
             {/* header: always visible, above the tray */}
             <View
