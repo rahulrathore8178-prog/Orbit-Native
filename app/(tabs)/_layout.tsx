@@ -1,21 +1,40 @@
 import { HapticTab } from '@/components/haptic-tab';
+import NeoTabButton from '@/components/ui/NeoTabButton';
+import TabBarGlass from '@/components/ui/TabBarGlass';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useTabBarLayout } from '@/hooks/useTabBarLayout';
 import { Stack, Tabs } from 'expo-router';
 import { Brain, ChartArea, Home, MessageCircle, Search } from 'lucide-react-native';
 import React from 'react';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
+  const bar = useTabBarLayout();
 
   return (
     <Tabs
       screenOptions={{
         tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
         headerShown: false,
-        tabBarButton: HapticTab,
+        tabBarButton: NeoTabButton,
+        tabBarBackground: () => <TabBarGlass />,
         tabBarStyle: {
-          backgroundColor: 'black',       // Background color of the bar
+          // backgroundColor: 'black',
+          position: 'absolute',
+          left: 20,
+          right: 20,
+          bottom: bar.bottom,
+          height: bar.height,
+          paddingTop: 0,
+          paddingBottom: 0,
+          borderTopWidth: 0,
+          backgroundColor: 'transparent',
+          elevation: 0,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 8 },
+          shadowOpacity: 0.25,
+          shadowRadius: 20,       // Background color of the bar
         },
       }}>
       <Tabs.Screen
@@ -53,13 +72,11 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="profile"  
+        name="profile"
         options={{
           title: 'Profile',
-          headerTitle: 'Your Orbital Profile',      // override just the header text
-          headerShown: true,
           headerStyle: { backgroundColor: '#000000' },
-          headerTintColor: '#fff',
+          headerTintColor: '#ffffff',
           headerTitleAlign: 'center',
           tabBarIcon: ({ color }) => <ChartArea size={23} color={color} />,
         }}

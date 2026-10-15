@@ -1,9 +1,9 @@
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { ChevronLeft, Crown, Globe, Lock, Shield, User, Users } from 'lucide-react-native';
 import React, { useMemo, useState } from 'react';
 import { Image, Pressable, ScrollView, Text, View } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ChevronLeft, Crown, Globe, Lock, Shield, User, Users } from 'lucide-react-native';
-import { COLORS, GlassPanel, NeoView } from '../sideDrawer/neo';
+import { COLORS, GlassPanel, NeoView } from '../ui/neo';
 import { MyOrbital, Orbital, resolveUrl } from './orbitalData';
 
 const ROLE_META = {
@@ -75,7 +75,7 @@ export default function OrbitalDetail() {
                 <View className="px-4 pt-6">
                     <GlassPanel radius={24} style={{ padding: 20 }}>
                         <Text className="text-center text-[14px] text-[#7C8494]">
-                            Couldn't load this orbital (id: {id}).
+                            Couldn&apos;t load this orbital (id: {id}).
                         </Text>
                     </GlassPanel>
                 </View>

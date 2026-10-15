@@ -1,7 +1,7 @@
 import { ChevronRight, Crown, Globe, Lock, Shield, User, Users } from 'lucide-react-native';
 import React, { useState } from 'react';
 import { Image, Pressable, Text, View } from 'react-native';
-import { COLORS, GlassPanel, NeoView } from '../sideDrawer/neo';
+import { COLORS, GlassPanel, NeoView } from '../ui/neo';
 import { MyOrbital, Orbital, resolveUrl } from './orbitalData';
 
 type Props = {

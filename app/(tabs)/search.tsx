@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, ReactNode } from "react";
 import {
     View, Text, TextInput, Pressable, ScrollView, Image, StyleSheet, Platform,
     KeyboardAvoidingView, useWindowDimensions, StyleProp, ViewStyle,
+    Keyboard,
 } from "react-native";
 import Animated, {
     useSharedValue, useAnimatedStyle, withTiming, withDelay, withRepeat, withSequence,
@@ -20,13 +21,21 @@ import {
 } from "@expo-google-fonts/sora";
 import { API_URL, getAuthHeaders } from "../utils";
 import { AppDispatch, RootState } from "@/redux/store";
+import { useOpenProfile } from "@/hooks/useOpenProfile";
 
 /* ---- adjust these imports to your project ---- */
 // import { apiUrl, getAuthHeaders } from "../config/api";
 // import { setSearchResults, setSearchQuery, setError } from "../store/friendsSlice";
 // import type { RootState, AppDispatch } from "../store";
 
-interface User { _id: string; username: string; profilePic?: string; isFriend?: boolean; hasPendingRequest?: boolean }
+interface User {
+    _id: string;
+    username: string;
+    profilePic?: string;
+    isFriend?: boolean;
+    requestSent: boolean;
+    hasPendingRequest?: boolean
+}
 
 /* ---------- tokens ---------- */
 const W = (a: number) => `rgba(255,255,255,${a})`;
@@ -109,23 +118,43 @@ function Avatar({ user }: { user: User }) {
 }
 
 /* ---------- one searched profile ---------- */
-function ProfileRow({ user, onSelect, onMessage, onAddFriend, onAccept, onReject }:
-    { user: User; onSelect: () => void; onMessage: (u: User) => void; onAddFriend: (u: User) => void; onAccept: (u: User) => void; onReject: (u: User) => void }) {
+function ProfileRow({ user, onSelect, onMessage, onAddFriend, onCancel, onAccept, onReject }: {
+    user: User;
+    onSelect: () => void;
+    onMessage: (u: User) => void;
+    onAddFriend: (u: User) => void;
+    onCancel: (u: User) => void;
+    onAccept: (u: User) => void;
+    onReject: (u: User) => void;
+}) {
     return (
         <GlassRow style={s.row}>
             <Avatar user={user} />
             <Pressable onPress={onSelect} style={{ flex: 1, minWidth: 0 }}>
                 <Text numberOfLines={1} style={s.rowText}>{user.username}</Text>
             </Pressable>
+
             {user.isFriend ? (
-                <ActionBtn label={`Message ${user.username}`} onPress={() => onMessage(user)}><MessageIcon size={18} color={C.n100} /></ActionBtn>
+                <ActionBtn label={`Message ${user.username}`} onPress={() => onMessage(user)}>
+                    <MessageIcon size={18} color={C.n100} />
+                </ActionBtn>
             ) : user.hasPendingRequest ? (
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                    <ActionBtn label={`Accept request from ${user.username}`} onPress={() => onAccept(user)}><CheckIcon size={18} color="#fff" /></ActionBtn>
-                    <ActionBtn plain label={`Decline request from ${user.username}`} onPress={() => onReject(user)}><CloseIcon size={18} color={C.n400} /></ActionBtn>
+                    <ActionBtn label={`Accept request from ${user.username}`} onPress={() => onAccept(user)}>
+                        <CheckIcon size={18} color="#fff" />
+                    </ActionBtn>
+                    <ActionBtn plain label={`Decline request from ${user.username}`} onPress={() => onReject(user)}>
+                        <CloseIcon size={18} color={C.n400} />
+                    </ActionBtn>
                 </View>
+            ) : user.requestSent ? (
+                <ActionBtn plain label={`Cancel request to ${user.username}`} onPress={() => onCancel(user)}>
+                    <ClockIcon size={18} color={C.n400} />
+                </ActionBtn>
             ) : (
-                <ActionBtn label={`Add ${user.username} as a friend`} onPress={() => onAddFriend(user)}><UserPlusIcon size={18} color={C.n100} /></ActionBtn>
+                <ActionBtn label={`Add ${user.username} as a friend`} onPress={() => onAddFriend(user)}>
+                    <UserPlusIcon size={18} color={C.n100} />
+                </ActionBtn>
             )}
         </GlassRow>
     );
@@ -174,6 +203,7 @@ const SEED = ["neon photography walks", "@mira.vale", "#lowlightcity", "late nig
 export default function SearchPage() {
     const dispatch = useDispatch<AppDispatch>();
     const navigation = useNavigation<any>();
+    const openProfile = useOpenProfile();
     const insets = useSafeAreaInsets();
     const { width, height } = useWindowDimensions();
     const [fontsLoaded] = useFonts({ Sora_300Light, Sora_400Regular, Sora_500Medium, Sora_600SemiBold });
@@ -235,6 +265,26 @@ export default function SearchPage() {
     const remove = (term: string) => setHistory((h) => h.filter((x) => x !== term));
     const rowDelay = (i: number, intro: number) => (introDone.current ? i * 50 : intro + i * 70);
 
+    function useKeyboardVisible() {
+        const [visible, setVisible] = useState(false);
+
+        useEffect(() => {
+            const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+            const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+            const show = Keyboard.addListener(showEvent, () => setVisible(true));
+            const hide = Keyboard.addListener(hideEvent, () => setVisible(false));
+            return () => {
+                show.remove();
+                hide.remove();
+            };
+        }, []);
+
+        return visible;
+    };
+
+    const keyboardOpen = useKeyboardVisible();
+
     if (!fontsLoaded) return null;
 
     const empty = (title: string, sub: string) => (
@@ -277,7 +327,8 @@ export default function SearchPage() {
                 </Reveal>
 
                 <View style={{ flex: 1, minHeight: 0 }}>
-                    <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingVertical: 12, gap: 14 }}>
+                    <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled"
+                        keyboardDismissMode="on-drag" contentContainerStyle={{ paddingVertical: 12, gap: 14 }}>
                         {searching ? (
                             loading && searchResults.length === 0 ? (
                                 [0, 1, 2, 3].map((i) => <SkeletonRow key={i} />)
@@ -287,7 +338,7 @@ export default function SearchPage() {
                                 searchResults.map((u, i) => (
                                     <Reveal key={u._id} delay={i * 50} duration={500} y={18} style={{ opacity: loading ? 0.6 : 1 }}>
                                         <ProfileRow user={u}
-                                            onSelect={() => u._id && navigation.navigate("SocialProfile", { id: u._id })}
+                                            onSelect={() => u._id && openProfile(u._id)}
                                             onMessage={handleMessage} onAddFriend={handleAddFriend} onAccept={handleAccept} onReject={handleReject} />
                                     </Reveal>
                                 ))
@@ -321,8 +372,9 @@ export default function SearchPage() {
             </View>
 
             {/* search bar */}
-            <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
-                <Reveal delay={900} duration={1000} y={110} easing={Easing.out(Easing.back(1.5))} style={[s.wrap, { paddingBottom: Math.max(16, insets.bottom), paddingTop: 8 }]}>
+            <KeyboardAvoidingView behavior="padding">
+                <Reveal delay={900} duration={1000} y={110} easing={Easing.out(Easing.back(1.5))}
+                    style={[s.wrap, { paddingBottom: keyboardOpen ? 10 : Math.max(65, insets.bottom), paddingTop: 8 }]}>
                     <View style={[s.barOuter, { borderColor: focused ? W(0.25) : W(0.1), shadowOpacity: focused ? 1 : 0.95 }]}>
                         <BlurView intensity={30} tint="dark" style={StyleSheet.absoluteFill} />
                         <View style={s.barInner}>

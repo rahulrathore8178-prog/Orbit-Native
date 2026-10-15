@@ -1,11 +1,25 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
+import {
+    BadgeCheck,
+    Bookmark,
+    Bot,
+    LifeBuoy,
+    LucideIcon,
+    MenuIcon,
+    Moon,
+    Orbit,
+    Settings,
+    Sun,
+    User
+} from 'lucide-react-native';
+import React, { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
     Animated,
     Easing,
     Image,
     ImageSourcePropType,
-    Modal,
-    PanResponder,
+    Platform,
     Pressable,
     ScrollView,
     StyleSheet,
@@ -13,26 +27,18 @@ import {
     View,
     useWindowDimensions,
 } from 'react-native';
-import { BlurView } from 'expo-blur';
-import { LinearGradient } from 'expo-linear-gradient';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Reanimated, {
+    Easing as REasing,
+    runOnJS,
+    useAnimatedStyle,
+    useSharedValue,
+    withSpring,
+    withTiming,
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import {
-    BadgeCheck,
-    Bookmark,
-    Bot,
-    FileText,
-    LifeBuoy,
-    LucideIcon,
-    Mic,
-    Moon,
-    Orbit,
-    Rocket,
-    Settings,
-    Sun,
-    User,
-    Users,
-} from 'lucide-react-native';
-import { COLORS, GlassPanel, NeoView } from './neo';
+import { COLORS, GlassPanel, NeoView } from '../ui/neo';
+import { resolveImg } from '@/app/utils';
 
 export type DrawerItemKey =
     | 'profile'
@@ -47,11 +53,10 @@ export type DrawerItemKey =
     | 'help';
 
 export type DrawerUser = {
-    name: string;
-    handle: string; // without the @
-    avatar?: ImageSourcePropType;
-    following: number;
-    followers: number;
+    username: string;
+    profilePic?: string;
+    // following: number;
+    // followers: number;
 };
 
 type MenuItem = {
@@ -81,14 +86,17 @@ const FOOTER_ITEMS: MenuItem[] = [
 type Props = {
     visible: boolean;
     onClose: () => void;
-    user: DrawerUser;
+    user: DrawerUser | null;
     onSelect: (key: DrawerItemKey) => void;
     darkMode: boolean;
     onToggleDarkMode: (next: boolean) => void;
     onPressMore?: () => void;
 };
 
-export default function SideDrawer({
+const OPEN_EASING = REasing.bezier(0.22, 1, 0.36, 1); // fast start, long soft landing
+const CLOSE_EASING = REasing.bezier(0.4, 0, 1, 1);
+
+function SideDrawer({
     visible,
     onClose,
     user,
@@ -101,223 +109,198 @@ export default function SideDrawer({
     const insets = useSafeAreaInsets();
     const drawerW = Math.min(width * 0.84, 340);
 
-    const progress = useRef(new Animated.Value(0)).current; // 0 closed, 1 open
-    const [mounted, setMounted] = useState(visible);
+    const progress = useSharedValue(0); // 0 closed, 1 open
+    const startProgress = useSharedValue(0);
 
     const onCloseRef = useRef(onClose);
     onCloseRef.current = onClose;
+    const requestClose = useCallback(() => onCloseRef.current(), []);
 
-    // mount first, then animate
+    // open / close: one shared value change, nothing mounts or unmounts
     useEffect(() => {
-        if (visible) setMounted(true);
-    }, [visible]);
+        progress.value = visible
+            ? withTiming(1, { duration: 320, easing: OPEN_EASING })
+            : withTiming(0, { duration: 240, easing: CLOSE_EASING });
+    }, [visible, progress]);
 
-    useEffect(() => {
-        if (visible && mounted) {
-            Animated.timing(progress, {
-                toValue: 1,
-                duration: 300,
-                easing: Easing.out(Easing.cubic),
-                useNativeDriver: true,
-            }).start();
-        } else if (!visible && mounted) {
-            Animated.timing(progress, {
-                toValue: 0,
-                duration: 240,
-                easing: Easing.in(Easing.cubic),
-                useNativeDriver: true,
-            }).start(({ finished }) => {
-                if (finished) setMounted(false);
-            });
-        }
-    }, [visible, mounted, progress]);
-
-    // swipe left to close
-    const panResponder = useMemo(
+    // swipe left to close, fully on the UI thread
+    const pan = useMemo(
         () =>
-            PanResponder.create({
-                onMoveShouldSetPanResponder: (_, g) =>
-                    g.dx < -10 && Math.abs(g.dx) > Math.abs(g.dy) * 1.5,
-                onPanResponderMove: (_, g) => {
-                    progress.setValue(Math.max(0, Math.min(1, 1 + g.dx / drawerW)));
-                },
-                onPanResponderRelease: (_, g) => {
-                    if (g.dx < -drawerW * 0.3 || g.vx < -0.6) {
-                        onCloseRef.current();
+            Gesture.Pan()
+                .activeOffsetX([-12, 12])
+                .failOffsetY([-14, 14])
+                .onStart(() => {
+                    startProgress.value = progress.value;
+                })
+                .onUpdate((e) => {
+                    const next = startProgress.value + e.translationX / drawerW;
+                    progress.value = Math.min(1, Math.max(0, next));
+                })
+                .onEnd((e) => {
+                    if (e.velocityX < -500 || progress.value < 0.65) {
+                        progress.value = withTiming(
+                            0,
+                            { duration: 200, easing: CLOSE_EASING },
+                            (finished) => {
+                                if (finished) runOnJS(requestClose)();
+                            }
+                        );
                     } else {
-                        Animated.spring(progress, {
-                            toValue: 1,
-                            useNativeDriver: true,
-                            bounciness: 0,
-                            speed: 18,
-                        }).start();
+                        progress.value = withSpring(1, { damping: 28, stiffness: 320 });
                     }
-                },
-                onPanResponderTerminate: () => {
-                    Animated.spring(progress, {
-                        toValue: 1,
-                        useNativeDriver: true,
-                        bounciness: 0,
-                        speed: 18,
-                    }).start();
-                },
-            }),
-        [drawerW, progress]
+                }),
+        [drawerW, progress, startProgress, requestClose]
     );
 
-    const translateX = progress.interpolate({
-        inputRange: [0, 1],
-        outputRange: [-drawerW - 4, 0],
-    });
-    const backdropOpacity = progress.interpolate({
-        inputRange: [0, 1],
-        outputRange: [0, 0.6],
-    });
-
-    if (!mounted) return null;
+    const drawerStyle = useAnimatedStyle(() => ({
+        transform: [{ translateX: (progress.value - 1) * (drawerW + 4) }],
+    }));
+    const backdropStyle = useAnimatedStyle(() => ({
+        opacity: progress.value * 0.6,
+    }));
+    // console.log('SideDrawer rendered', user.avatar);
+    // console.log('drawer user:', user)
+    // console.log('drawer pic ->', resolveImg(user?.profilePic))
 
     return (
-        <Modal
-            visible={mounted}
-            transparent
-            animationType="none"
-            statusBarTranslucent
-            onRequestClose={onClose}
-        >
+        <View style={styles.root} pointerEvents={visible ? 'auto' : 'none'}>
             {/* Backdrop */}
-            <Animated.View
-                style={[StyleSheet.absoluteFill, { backgroundColor: '#000', opacity: backdropOpacity }]}
-            />
-            <Pressable
-                style={StyleSheet.absoluteFill}
-                onPress={onClose}
-                accessibilityLabel="Close menu"
-            />
+            <Reanimated.View style={[StyleSheet.absoluteFill, styles.backdrop, backdropStyle]}>
+                <Pressable
+                    style={StyleSheet.absoluteFill}
+                    onPress={onClose}
+                    accessibilityLabel="Close menu"
+                />
+            </Reanimated.View>
 
             {/* Drawer */}
-            <Animated.View
-                {...panResponder.panHandlers}
-                style={[
-                    styles.drawer,
-                    { width: drawerW, transform: [{ translateX }] },
-                ]}
-            >
-                <BlurView
-                    intensity={55}
-                    tint="dark"
-                    experimentalBlurMethod="dimezisBlurView"
-                    style={StyleSheet.absoluteFill}
-                />
-                <LinearGradient
-                    pointerEvents="none"
-                    colors={['rgba(29,155,240,0.14)', 'rgba(10,12,18,0.82)', 'rgba(10,12,18,0.92)']}
-                    locations={[0, 0.45, 1]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={StyleSheet.absoluteFill}
-                />
+            <GestureDetector gesture={pan}>
+                <Reanimated.View style={[styles.drawer, { width: drawerW }, drawerStyle]}>
+                    {/* iOS: real blur. Android: a solid layer, because re-blurring a moving view
+                        every frame is the biggest cause of drawer lag on Android. */}
+                    {Platform.OS === 'ios' ? (
+                        <BlurView intensity={55} tint="dark" style={StyleSheet.absoluteFill} />
+                    ) : (
+                        <View
+                            pointerEvents="none"
+                            style={[StyleSheet.absoluteFill]}
+                            className="bg-black/5 backdrop-blur-sm"
+                        />
+                    )}
+                    <LinearGradient
+                        pointerEvents="none"
+                        colors={['rgba(29,155,240,0.14)', 'rgba(10,12,18,0.82)', 'rgba(10,12,18,0.92)']}
+                        locations={[0, 0.45, 1]}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={StyleSheet.absoluteFill}
+                    />
 
-                {/* Scrollable top part */}
-                <ScrollView
-                    style={{ flex: 1 }}
-                    showsVerticalScrollIndicator={false}
-                    contentContainerStyle={{
-                        paddingTop: insets.top + 16,
-                        paddingHorizontal: 16,
-                        paddingBottom: 16,
-                    }}
-                >
-                    {/* Header */}
-                    <GlassPanel radius={26} style={{ padding: 16 }}>
-                        <View style={styles.headerTop}>
-                            <NeoView radius={36} style={{ width: 68, height: 68 }}>
-                                {user.avatar ? (
-                                    <Image source={user.avatar} style={styles.avatar} />
-                                ) : (
-                                    <Text style={styles.avatarFallback}>
-                                        {user.name.charAt(0).toUpperCase()}
-                                    </Text>
-                                )}
-                            </NeoView>
+                    {/* Scrollable top part */}
+                    <ScrollView
+                        style={{ flex: 1 }}
+                        showsVerticalScrollIndicator={false}
+                        contentContainerStyle={{
+                            paddingTop: insets.top + 16,
+                            paddingHorizontal: 16,
+                            paddingBottom: 16,
+                        }}
+                    >
+                        {/* Header */}
+                        <GlassPanel radius={26} style={{ padding: 16 }}>
+                            <View style={styles.headerTop}>
+                                <NeoView radius={36} style={{ width: 68, height: 68 }}>
+                                    {user?.profilePic && (
+                                    //     <Image source={{ uri: resolveImg(user?.profilePic) }} style={styles.avatar} />
+                                    // ) : (
+                                    //     <Text style={styles.avatarFallback}>
+                                    //         {user?.username?.charAt(0).toUpperCase()}
+                                    //     </Text>
+                                    <User color='white' />
+                                    )}
+                                </NeoView>
 
-                            <Pressable
-                                onPress={onPressMore}
-                                hitSlop={8}
-                                accessibilityLabel="More options"
-                            >
-                                {({ pressed }) => (
-                                    <NeoView radius={20} pressed={pressed} style={{ width: 40, height: 40 }}>
-                                        <View style={{ gap: 3 }}>
-                                            <View style={styles.dot} />
-                                            <View style={styles.dot} />
-                                            <View style={styles.dot} />
-                                        </View>
-                                    </NeoView>
-                                )}
-                            </Pressable>
-                        </View>
+                                <Pressable
+                                    onPress={onPressMore}
+                                    hitSlop={8}
+                                    accessibilityLabel="More options"
+                                >
+                                    {({ pressed }) => (
+                                        <NeoView radius={20} pressed={pressed} style={{ width: 40, height: 40 }}>
+                                            <View style={{ gap: 3 }}>
+                                                <View style={styles.dot} />
+                                                <View style={styles.dot} />
+                                                <View style={styles.dot} />
+                                            </View>
+                                        </NeoView>
+                                    )}
+                                </Pressable>
+                            </View>
 
-                        <Text style={styles.name} numberOfLines={1}>
-                            {user.name}
-                        </Text>
-                        <Text style={styles.handle} numberOfLines={1}>
-                            @{user.handle}
-                        </Text>
-
-                        <View style={styles.stats}>
-                            <Text style={styles.statText}>
-                                <Text style={styles.statNum}>{user.following}</Text> Following
+                            <Text style={styles.name} numberOfLines={1}>
+                                {user?.username}
                             </Text>
-                            <Text style={styles.statText}>
-                                <Text style={styles.statNum}>{user.followers}</Text> Followers
-                            </Text>
-                        </View>
-                    </GlassPanel>
+                            {/* <Text style={styles.handle} numberOfLines={1}>
+                                @{user.handle}
+                            </Text> */}
 
-                    {/* Main menu */}
-                    <GlassPanel radius={26} style={{ marginTop: 16, padding: 8 }}>
-                        {MAIN_ITEMS.map((item) => (
-                            <MenuRow key={item.key} item={item} onPress={onSelect} />
-                        ))}
-                    </GlassPanel>
-                </ScrollView>
+                            {/* <View style={styles.stats}>
+                                <Text style={styles.statText}>
+                                    <Text style={styles.statNum}>{user.following}</Text> Following
+                                </Text>
+                                <Text style={styles.statText}>
+                                    <Text style={styles.statNum}>{user.followers}</Text> Followers
+                                </Text>
+                            </View> */}
+                        </GlassPanel>
 
-                {/* Pinned footer */}
-                <View
-                    style={{
-                        paddingHorizontal: 16,
-                        paddingBottom: insets.bottom + 12,
-                        gap: 12,
-                    }}
-                >
-                    <GlassPanel radius={26} style={{ padding: 8 }}>
-                        {FOOTER_ITEMS.map((item) => (
-                            <MenuRow key={item.key} item={item} onPress={onSelect} compact />
-                        ))}
-                    </GlassPanel>
+                        {/* Main menu */}
+                        <GlassPanel radius={26} style={{ marginTop: 16, padding: 8 }}>
+                            {MAIN_ITEMS.map((item) => (
+                                <MenuRow key={item.key} item={item} onPress={onSelect} />
+                            ))}
+                        </GlassPanel>
+                    </ScrollView>
 
-                    <GlassPanel radius={22} style={styles.themeRow}>
-                        <View style={styles.themeLeft}>
-                            <NeoView radius={12} style={{ width: 38, height: 38 }}>
-                                {darkMode ? (
-                                    <Moon size={18} color={COLORS.accent} />
-                                ) : (
-                                    <Sun size={18} color="#F5B942" />
-                                )}
-                            </NeoView>
-                            <Text style={styles.themeLabel}>Dark mode</Text>
-                        </View>
-                        <NeoSwitch value={darkMode} onValueChange={onToggleDarkMode} />
-                    </GlassPanel>
-                </View>
-            </Animated.View>
-        </Modal>
+                    {/* Pinned footer */}
+                    <View
+                        style={{
+                            paddingHorizontal: 16,
+                            paddingBottom: insets.bottom + 12,
+                            gap: 12,
+                        }}
+                    >
+                        <GlassPanel radius={26} style={{ padding: 8 }}>
+                            {FOOTER_ITEMS.map((item) => (
+                                <MenuRow key={item.key} item={item} onPress={onSelect} compact />
+                            ))}
+                        </GlassPanel>
+
+                        <GlassPanel radius={22} style={styles.themeRow}>
+                            <View style={styles.themeLeft}>
+                                <NeoView radius={12} style={{ width: 38, height: 38 }}>
+                                    {darkMode ? (
+                                        <Moon size={18} color={COLORS.accent} />
+                                    ) : (
+                                        <Sun size={18} color="#F5B942" />
+                                    )}
+                                </NeoView>
+                                <Text style={styles.themeLabel}>Dark mode</Text>
+                            </View>
+                            <NeoSwitch value={darkMode} onValueChange={onToggleDarkMode} />
+                        </GlassPanel>
+                    </View>
+                </Reanimated.View>
+            </GestureDetector>
+        </View>
     );
 }
 
+export default memo(SideDrawer);
+
 /* ---------- Row ---------- */
 
-function MenuRow({
+const MenuRow = memo(function MenuRow({
     item,
     onPress,
     compact = false,
@@ -365,7 +348,7 @@ function MenuRow({
             )}
         </Pressable>
     );
-}
+});
 
 /* ---------- Neumorphic switch ---------- */
 
@@ -427,6 +410,12 @@ function NeoSwitch({
 /* ---------- Styles ---------- */
 
 const styles = StyleSheet.create({
+    root: {
+        ...StyleSheet.absoluteFillObject,
+        zIndex: 1000,
+        elevation: 1000, // Android z-order
+    },
+    backdrop: { backgroundColor: '#000' },
     drawer: {
         position: 'absolute',
         top: 0,

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, Easing, View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
-import { COLORS, NeoView } from '../sideDrawer/neo';
+import { COLORS, NeoView } from '../ui/neo';
 
 export default function OrbitIcon({ size = 48 }: { size?: number }) {
     const spin = useRef(new Animated.Value(0)).current;

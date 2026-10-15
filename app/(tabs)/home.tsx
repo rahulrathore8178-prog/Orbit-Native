@@ -6,14 +6,16 @@ import { useEvent } from 'expo';
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
+import { router, useFocusEffect, useRouter } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import * as Haptics from 'expo-haptics'; // optional: npx expo install expo-haptics
 import {
     Alert,
     Animated,
     FlatList,
     Image,
+    Platform,
     Pressable,
     Text,
     TouchableOpacity,
@@ -21,8 +23,25 @@ import {
     View,
 } from 'react-native';
 import SideDrawer, { DrawerItemKey } from '../../components/sideDrawer/sideDrawer';
-import { API_URL, BASE_IMAGE_URL, getDisplayImageUrl } from '../utils';
-
+import { API_URL, BASE_IMAGE_URL, getDisplayImageUrl, resolveImg } from '../utils';
+import CreatePost from '@/components/posts/CreatePost';
+import CommentsSheet from '@/components/comments/CommentsSheet';
+import { useIsFocused } from '@react-navigation/native';
+import OrbitLoader from '@/components/ui/OrbitLoader';
+import { useOpenProfile } from '@/hooks/useOpenProfile';
+import { GlassPanel } from '@/components/ui/neo';
+import { useTabNavigation } from '@/hooks/useTabNavigation';
+import { useHorizontalSwipe } from '@/hooks/useHorizontalSwipe';
+import ShareModal from '@/components/posts/ShareModal';
+import type { ShareTarget } from '@/components/posts/ShareModal';
+import { MenuIcon } from 'lucide-react-native';
+import { useCollapsibleTray } from '@/hooks/capsule/useCollapsibleTray';
+import { Rect } from '@/constants/capsule/types';
+import { useCapsules } from '@/hooks/capsule/useCapsules';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { CAPSULE } from '@/constants/capsule/constants';
+import { CapsuleTray } from '@/components/capsule/CapsuleTray';
+import { CapsuleViewer } from '@/components/capsule/CapsuleViewer';
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -56,6 +75,7 @@ export interface PostcardProps {
     onShare?: (id: string) => void;
     /** Pass this from a FlatList viewabilityConfig to auto-pause off-screen media. */
     isVisible?: boolean;
+    onClickShare?: (id: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -181,12 +201,12 @@ const Postcard = ({
     commentsCount,
     isLikedByCurrentUser,
     isOwn,
-    handleLike,
     onComment,
     onDelete,
     onAuthorPress,
-    onShare,
-    isVisible = true,
+    onClickShare,
+    onPressComments,
+    isVisible = false,
 }: PostcardProps) => {
     const { width: screenWidth, height: screenHeight } = useWindowDimensions();
 
@@ -209,9 +229,64 @@ const Postcard = ({
     const cardMaxHeight = screenHeight * 0.78;
 
     const [measuredImageRatio, setMeasuredImageRatio] = useState<number | null>(null);
+    const [isLiked, setIsLiked] = useState(isLikedByCurrentUser);
+    const [isVideoPlaying, setIsVideoPlaying] = useState(false);
     const providedRatio = mediaWidth && mediaHeight ? mediaWidth / mediaHeight : null;
     const activeRatio = providedRatio ?? measuredImageRatio ?? (hasVideo ? 9 / 16 : 4 / 5);
     const mediaHeightPx = mediaWidthPx / clampAspectRatio(activeRatio);
+
+
+    const DOUBLE_TAP_DELAY = 250;
+
+    function useDoubleTap(onSingle: () => void, onDouble: () => void) {
+        const lastTap = useRef(0);
+        const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+        useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+
+        return useCallback(() => {
+            const now = Date.now();
+            if (now - lastTap.current < DOUBLE_TAP_DELAY) {
+                // second tap: cancel the pending single tap, run double tap
+                if (timer.current) clearTimeout(timer.current);
+                lastTap.current = 0;
+                onDouble();
+            } else {
+                lastTap.current = now;
+                timer.current = setTimeout(onSingle, DOUBLE_TAP_DELAY);
+            }
+        }, [onSingle, onDouble]);
+    }
+
+    function useHeartBurst() {
+        const scale = useRef(new Animated.Value(0)).current;
+        const opacity = useRef(new Animated.Value(0)).current;
+
+        const play = useCallback(() => {
+            scale.setValue(0.3);
+            opacity.setValue(1);
+            Animated.sequence([
+                Animated.spring(scale, { toValue: 1, friction: 4, useNativeDriver: true }),
+                Animated.delay(250),
+                Animated.timing(opacity, { toValue: 0, duration: 200, useNativeDriver: true }),
+            ]).start();
+        }, [scale, opacity]);
+
+        const HeartBurst = (
+            <View pointerEvents="none" style={{ ...StyleSheetAbsolute, alignItems: 'center', justifyContent: 'center' }}>
+                <Animated.View style={{ opacity, transform: [{ scale }] }}>
+                    <Ionicons name="heart" size={90} color="#fff"
+                        style={{ textShadowColor: 'rgba(0,0,0,0.35)', textShadowRadius: 12 }} />
+                </Animated.View>
+            </View>
+        );
+
+        return { play, HeartBurst };
+    }
+
+    const StyleSheetAbsolute = { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 } as const;
+
+    const { play: playHeart, HeartBurst } = useHeartBurst();
 
     // -- like animation -------------------------------------------------------
     const [liked, setLiked] = useState(isLikedByCurrentUser);
@@ -220,16 +295,50 @@ const Postcard = ({
     useEffect(() => setLikeCount(likesCount), [likesCount]);
 
     const heartScale = useRef(new Animated.Value(1)).current;
-    const onLikePress = () => {
+
+    const likeInFlight = useRef(false);
+
+    const sendLike = useCallback(async (forceLike = false) => {
+        if (likeInFlight.current) return;
+        if (forceLike && liked) return;          // double tap never unlikes
+
+        likeInFlight.current = true;
         const next = !liked;
+
+        // update the UI instantly
         setLiked(next);
         setLikeCount((c) => c + (next ? 1 : -1));
         Animated.sequence([
             Animated.timing(heartScale, { toValue: 1.25, duration: 90, useNativeDriver: true }),
             Animated.spring(heartScale, { toValue: 1, useNativeDriver: true, friction: 4 }),
         ]).start();
-        handleLike?.(id, next);
-    };
+
+        try {
+            const token = await AsyncStorage.getItem('token');
+            await axios.post(
+                `${API_URL}/api/community/posts/${id}/like`,
+                {},
+                { withCredentials: true, headers: { Authorization: `Bearer ${token}` } }
+            );
+        } catch (error) {
+            console.error('Error in handleLike:', error);
+            // roll back if the server failed
+            setLiked(!next);
+            setLikeCount((c) => c + (next ? -1 : 1));
+        } finally {
+            likeInFlight.current = false;
+        }
+    }, [liked, id, heartScale]);
+
+    // like button: toggles
+    const onLikePress = useCallback(() => sendLike(false), [sendLike]);
+
+    // double tap: heart animation always plays, like only if not liked yet
+    const handleLike = useCallback(() => {
+        playHeart();
+        if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        sendLike(true);
+    }, [playHeart, sendLike]);
 
     // -- video ----------------------------------------------------------------
     const [isVideoMuted, setIsVideoMuted] = useState(true);
@@ -237,18 +346,52 @@ const Postcard = ({
         player.loop = true;
         player.muted = true;
     });
-    const { isPlaying: isVideoPlaying } = useEvent(videoPlayer, 'playingChange', {
-        isPlaying: videoPlayer.playing,
-    });
 
     useEffect(() => {
         videoPlayer.muted = isVideoMuted;
     }, [isVideoMuted, videoPlayer]);
 
-    const toggleVideoPlay = () => {
-        if (isVideoPlaying) videoPlayer.pause();
+
+    const toggleVideoPlay = useCallback(() => {
+        if (videoPlayer.playing) videoPlayer.pause();
         else videoPlayer.play();
-    };
+    }, [videoPlayer]);
+
+    // Video: single = play/pause, double = like
+    const handleVideoTap = useDoubleTap(toggleVideoPlay, handleLike);
+    // Image: single = nothing, double = like
+    const handleImageTap = useDoubleTap(() => { }, handleLike);
+
+    const isFocused = useIsFocused();
+
+    // 1. Player setup (runs once per player)
+    useEffect(() => {
+        videoPlayer.loop = true;
+    }, [videoPlayer]);
+
+    // 2. Mute follows state
+    useEffect(() => {
+        videoPlayer.muted = isVideoMuted;
+    }, [videoPlayer, isVideoMuted]);
+
+    // 3. Keep useState in sync with the real player state
+    useEffect(() => {
+        setIsVideoPlaying(videoPlayer.playing); // initial value
+        const sub = videoPlayer.addListener('playingChange', ({ isPlaying }) => {
+            setIsVideoPlaying(isPlaying);
+        });
+        return () => sub.remove();
+    }, [videoPlayer]);
+
+    // 4. Autoplay when >= 70% visible, pause the moment it drops below
+    useEffect(() => {
+        if (isVisible && isFocused) videoPlayer.play();
+        else videoPlayer.pause();
+    }, [isVisible, isFocused, videoPlayer]);
+
+    // 5. Pause on unmount
+    useEffect(() => () => { videoPlayer.pause(); }, [videoPlayer]);
+
 
     // -- audio (voice note) ---------------------------------------------------
     const audioPlayer = useAudioPlayer(audioUri ?? null);
@@ -295,8 +438,16 @@ const Postcard = ({
         ]);
     };
 
+    const openProfile = useOpenProfile();
+
+    const openAuthor = () => {
+        if (!author.id) return;
+        if (isOwn) router.navigate('/(tabs)/profile');
+        else openProfile(author.id);
+    };
+
     return (
-        <View
+        <GlassPanel
             style={{ width: cardWidth, alignSelf: 'center', marginBottom: 14, maxHeight: cardMaxHeight }}>
             {/* Ambient glow behind the card */}
             {/* <LinearGradient
@@ -325,14 +476,6 @@ const Postcard = ({
                     backgroundColor: 'rgba(255,255,255,0.06)',
                 }}
             >
-                {/* top-left sheen */}
-                <LinearGradient
-                    colors={['rgba(255,255,255,0.14)', 'rgba(255,255,255,0)']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 0.7, y: 0.7 }}
-                    style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '60%' }}
-                    pointerEvents="none"
-                />
 
                 {/* Header */}
                 <View
@@ -346,39 +489,36 @@ const Postcard = ({
                 >
                     <TouchableOpacity
                         activeOpacity={0.75}
-                        onPress={() => author.id && onAuthorPress?.(author.id)}
-                        style={{ marginRight: 12 }}
+                        onPress={openAuthor}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Open ${author.username}'s profile`}
+                        style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}
                     >
-                        {author.profilePic ? (
-                            <Image
-                                source={{ uri: author.profilePic }}
-                                style={{
-                                    width: 36,
-                                    height: 36,
-                                    borderRadius: 18,
-                                    borderWidth: 1.5,
-                                    borderColor: 'rgba(255,255,255,0.5)',
-                                }}
-                            />
-                        ) : (
-                            <AvatarInitial name={author.username} size={36} />
-                        )}
-                    </TouchableOpacity>
+                        <View style={{ marginRight: 12 }}>
+                            {author.profilePic ? (
+                                <Image
+                                    source={{ uri: resolveImg(author.profilePic) }}
+                                    style={{
+                                        width: 36,
+                                        height: 36,
+                                        borderRadius: 18,
+                                        borderWidth: 1.5,
+                                        borderColor: 'rgba(255,255,255,0.5)',
+                                    }}
+                                />
+                            ) : (
+                                <AvatarInitial name={author.username} size={36} />
+                            )}
+                        </View>
 
-                    <TouchableOpacity
-                        activeOpacity={0.75}
-                        onPress={() => author.id && onAuthorPress?.(author.id)}
-                        style={{ flex: 1 }}
-                    >
-                        <Text
-                            numberOfLines={1}
-                            style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}
-                        >
-                            {author.username}
-                        </Text>
-                        <Text style={{ color: 'rgba(255,255,255,0.65)', fontSize: 11, marginTop: 1 }}>
-                            {formatTimeAgo(createdAt)} ago
-                        </Text>
+                        <View style={{ flex: 1 }}>
+                            <Text numberOfLines={1} style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>
+                                {author.username}
+                            </Text>
+                            <Text style={{ color: 'rgba(255,255,255,0.65)', fontSize: 11, marginTop: 1 }}>
+                                {formatTimeAgo(createdAt)} ago
+                            </Text>
+                        </View>
                     </TouchableOpacity>
 
                     {isOwn && (
@@ -394,60 +534,34 @@ const Postcard = ({
 
                 {/* Body */}
                 {hasVideo ? (
-                    <View
-                        style={{
-                            width: mediaWidthPx,
-                            height: mediaHeightPx,
-                            alignSelf: 'center',
-                            borderRadius: 22,
-                            overflow: 'hidden',
-                            backgroundColor: '#000',
-                        }}
-                    >
-                        <VideoView
-                            player={videoPlayer}
-                            style={{ width: '100%', height: '100%' }}
-                            contentFit="contain"
-                            nativeControls={false}
-                        />
-                        <Pressable
-                            onPress={toggleVideoPlay}
-                            style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' }}
-                        >
+                    < View style={{ width: mediaWidthPx, height: mediaHeightPx, alignSelf: 'center', borderRadius: 22, overflow: 'hidden', backgroundColor: '#000' }}>
+                        <VideoView player={videoPlayer} style={{ width: '100%', height: '100%' }} contentFit="contain" nativeControls={false} />
+                        <Pressable onPress={handleVideoTap} style={{ ...StyleSheetAbsolute, alignItems: 'center', justifyContent: 'center' }}>
                             {!isVideoPlaying && (
-                                <View
-                                    style={{
-                                        width: 56,
-                                        height: 56,
-                                        borderRadius: 28,
-                                        backgroundColor: 'rgba(0,0,0,0.4)',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                    }}
-                                >
+                                <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center' }}>
                                     <Ionicons name="play" size={22} color="#fff" style={{ marginLeft: 3 }} />
                                 </View>
                             )}
                         </Pressable>
+                        {HeartBurst}
                         <TouchableOpacity
                             onPress={() => setIsVideoMuted((m) => !m)}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            accessibilityRole="button"
+                            accessibilityLabel={isVideoMuted ? 'Unmute video' : 'Mute video'}
                             style={{
                                 position: 'absolute',
                                 bottom: 12,
                                 right: 12,
-                                width: 32,
-                                height: 32,
-                                borderRadius: 16,
-                                backgroundColor: 'rgba(0,0,0,0.45)',
+                                width: 34,
+                                height: 34,
+                                borderRadius: 17,
+                                backgroundColor: 'rgba(0,0,0,0.5)',
                                 alignItems: 'center',
                                 justifyContent: 'center',
                             }}
                         >
-                            <Ionicons
-                                name={isVideoMuted ? 'volume-mute' : 'volume-high'}
-                                size={15}
-                                color="#fff"
-                            />
+                            <Ionicons name={isVideoMuted ? 'volume-mute' : 'volume-high'} size={16} color="#fff" />
                         </TouchableOpacity>
                     </View>
                 ) : hasAudio ? (
@@ -528,15 +642,9 @@ const Postcard = ({
                         </View>
                     </View>
                 ) : hasImage ? (
-                    <View
-                        style={{
-                            width: mediaWidthPx,
-                            height: mediaHeightPx,
-                            alignSelf: 'center',
-                            borderRadius: 22,
-                            overflow: 'hidden',
-                            backgroundColor: 'rgba(0,0,0,0.3)',
-                        }}
+                    <Pressable
+                        onPress={handleImageTap}
+                        style={{ width: mediaWidthPx, height: mediaHeightPx, alignSelf: 'center', borderRadius: 22, overflow: 'hidden', backgroundColor: 'rgba(0,0,0,0.3)' }}
                     >
                         <Image
                             source={{ uri: imageUri }}
@@ -555,33 +663,33 @@ const Postcard = ({
                             }}
                             style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
                         />
-                    </View>
+                        {HeartBurst}
+                    </Pressable>
                 ) : (
-                    <LinearGradient
-                        colors={[gradientFrom, gradientTo]}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
+                    <View
                         style={{
                             marginHorizontal: cardPadding,
-                            borderRadius: 22,
-                            paddingHorizontal: 18,
-                            paddingVertical: 22,
-                            maxHeight: cardMaxHeight * 0.55,
+                            paddingLeft: 14,
+                            paddingVertical: 2,
+                            borderLeftWidth: 2,
+                            borderLeftColor: 'rgba(255,255,255,0.14)',
                         }}
                     >
                         <Text
+                            selectable
                             style={{
-                                color: '#fff',
-                                ...textTypographyStyle,
-                                textShadowColor: 'rgba(0,0,0,0.25)',
-                                textShadowOffset: { width: 0, height: 2 },
-                                textShadowRadius: 8,
+                                color: 'rgba(255,255,255,0.96)',
+                                fontSize: 17,
+                                lineHeight: 26,
+                                fontWeight: '400',
+                                letterSpacing: 0.15,
                             }}
                         >
                             {content}
                         </Text>
-                    </LinearGradient>
-                )}
+                    </View>
+                )
+                }
 
                 {/* Footer */}
                 <View style={{ paddingHorizontal: cardPadding, paddingTop: hasMedia ? 12 : 16, paddingBottom: 16 }}>
@@ -593,7 +701,7 @@ const Postcard = ({
                             >
                                 {content}
                             </Text>
-                            <TouchableOpacity onPress={() => onShare?.(id)} style={{ paddingTop: 2 }}>
+                            <TouchableOpacity onPress={() => onClickShare?.(id)} style={{ paddingTop: 2 }}>
                                 <Ionicons name="paper-plane-outline" size={15} color="rgba(255,255,255,0.85)" />
                             </TouchableOpacity>
                         </View>
@@ -616,7 +724,7 @@ const Postcard = ({
                         </TouchableOpacity>
 
                         <TouchableOpacity
-                            onPress={() => onComment?.(id)}
+                            onPress={onPressComments}
                             activeOpacity={0.75}
                             style={{ flexDirection: 'row', alignItems: 'center' }}
                         >
@@ -625,14 +733,14 @@ const Postcard = ({
                         </TouchableOpacity>
 
                         {!hasMedia && (
-                            <TouchableOpacity onPress={() => onShare?.(id)} style={{ marginLeft: 'auto' }}>
+                            <TouchableOpacity onPress={() => onClickShare?.(id)} style={{ marginLeft: 'auto' }}>
                                 <Ionicons name="paper-plane-outline" size={16} color="rgba(255,255,255,0.85)" />
                             </TouchableOpacity>
                         )}
                     </View>
                 </View>
-            </BlurView>
-        </View>
+            </BlurView >
+        </GlassPanel >
     );
 };
 
@@ -658,74 +766,150 @@ const toPostcardProps = (post: ApiPost): PostcardProps => ({
     isLikedByCurrentUser: post.isLikedByCurrentUser ?? false,
     isOwn: post.isOwn,
     handleLike: () => { },
+    onClickShare: () => { },
 });
+
+type StoredUser = {
+    id?: string;
+    username?: string;
+    email?: string;
+    avatarUrl?: string;
+    profilePic?: string;
+    friends?: string[];
+    orbitals?: string[];
+};
+
+const stripHost = (p?: string) => (p ? p.replace(/^https?:\/\/[^/]+/, '') : p);
+
+// Normalises whatever your API returns into what ShareModal needs.
+const toShareTarget = (u: any): ShareTarget => ({
+    id: String(u?._id ?? u?.id),
+    name: u?.name ?? u?.username ?? 'Unknown',
+    username: u?.username,
+    avatar: u?.profilePic ? resolveImg(u.profilePic) : undefined,
+    memberCount: u?.memberCount ?? u?.members?.length,
+});
+
+const toList = (data: any, key: string): any[] =>
+    Array.isArray(data) ? data : Array.isArray(data?.[key]) ? data[key] : [];
 
 export default function HomeScreen() {
     const [posts, setPosts] = useState<PostcardProps[]>([]);
     const [refreshing, setRefreshing] = useState(false);
     const [drawerOpen, setDrawerOpen] = useState(false);
     const [darkMode, setDarkMode] = useState(true);
-    // const [currentUser, setCurrentUser] = useState(null);
-    type StoredUser = {
-        id?: string;
-        username?: string;
-        email?: string;
-        avatarUrl?: string;
-        profilePic?: string;
-    };
+    const [loading, setLoading] = useState(true);
+    const [currentUser, setCurrentUser] = useState<StoredUser | null>(null);
+    const [commentsPostId, setCommentsPostId] = useState<string | null>(null);
+    const [visibleId, setVisibleId] = useState<string | null>(null);
+
+    // share
+    const [shareId, setShareId] = useState<string | null>(null);
+    const [friends, setFriends] = useState<ShareTarget[]>([]);
+    const [orbitals, setOrbitals] = useState<ShareTarget[]>([]);
+    const shareTargetsLoaded = useRef(false);
+
+    const { nextTab } = useTabNavigation();
+    const swipe = useHorizontalSwipe({
+        onSwipeRight: () => setDrawerOpen(true),
+    });
+    const TRAY_H = CAPSULE.TRAY_ITEM_H + 24;
+
+// inside the component:
+const router = useRouter();
+const insets = useSafeAreaInsets();
+const capsules = useCapsules();
+console.log('capsules', capsules);
+const [headerH, setHeaderH] = useState(insets.top + 80); // corrected by onLayout
+const [viewer, setViewer] = useState<{ userId: string; origin: Rect } | null>(null);
+const { onScroll, trayStyle } = useCollapsibleTray(TRAY_H);
+
+// refetch capsules when returning from the create screen (skips first focus)
+const firstFocus = useRef(true);
+useFocusEffect(
+  useCallback(() => {
+    if (firstFocus.current) firstFocus.current = false;
+    else capsules.reload();
+  }, [capsules.reload]), // eslint-disable-line react-hooks/exhaustive-deps
+);
+
+    /* ------------------------------ share ------------------------------ */
+
+    const loadShareTargets = useCallback(async () => {
+        if (shareTargetsLoaded.current) return; // fetch once, reuse after
+        const token = await AsyncStorage.getItem('token');
+        const headers = { Authorization: `Bearer ${token}` };
+
+        // TODO: replace these two endpoints with your real ones
+        const [f, o] = await Promise.allSettled([
+            axios.get(`${API_URL}/api/social/friends`, { headers }),
+            axios.get(`${API_URL}/api/orbital/all`, { headers }),
+        ]);
+        console.log('Share targets fetched:', { friends: f, orbitals: o });
+
+        if (f.status === 'fulfilled') setFriends(toList(f.value.data, 'friends').map(toShareTarget));
+        if (o.status === 'fulfilled') setOrbitals(toList(o.value.data, 'orbitals').map(toShareTarget));
+        if (f.status === 'fulfilled' || o.status === 'fulfilled') shareTargetsLoaded.current = true;
+    }, []);
+
+    const handleShare = useCallback((id: string) => {
+        console.log('share tapped', id);
+        setShareId(id);
+        loadShareTargets();
+    }, [loadShareTargets]);
+
+    const closeShare = useCallback(() => setShareId(null), []);
+
+    /* ----------------------------- drawer ------------------------------ */
 
     const handleSelect = (key: DrawerItemKey) => {
         setDrawerOpen(false);
-
         if (key === 'orbitals') {
-            // wait for the drawer's 240ms slide-out, so the push doesn't collide
-            // with the still-mounted Modal (iOS can swallow it otherwise)
+            // wait for the drawer's 240ms slide-out so the push doesn't collide with the Modal
             setTimeout(() => router.push('/orbital'), 260);
-            return;
         }
-
-        // other keys: router.push(...) as you add their pages
     };
 
-    const [currentUser, setCurrentUser] = useState<StoredUser | null>(null);
+    /* ----------------------------- feed -------------------------------- */
+
+    const viewabilityConfig = useRef({
+        itemVisiblePercentThreshold: 70,
+        minimumViewTime: 100,
+    }).current;
+
+    const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
+        const first = viewableItems.find((v: any) => v.isViewable);
+        setVisibleId(first?.item?.id ?? null);
+    }).current;
 
     useEffect(() => {
-        const loadCurrentUser = async () => {
+        (async () => {
             try {
                 const raw = await AsyncStorage.getItem('user');
-                setCurrentUser(raw ? JSON.parse(raw) : null);
+                if (!raw) return setCurrentUser(null);
+                const user = JSON.parse(raw);
+                setCurrentUser({ ...user, profilePic: stripHost(user?.profilePic) });
             } catch (error) {
                 console.error('Unable to load current user:', error);
                 setCurrentUser(null);
             }
-        };
-
-        loadCurrentUser();
+        })();
     }, []);
-
-    // const currentUser = getStoredUser();
     console.log('Current user:', currentUser);
-
-    // const handleSelect = (key: DrawerItemKey) => {
-    //     setDrawerOpen(false);
-    //     // router.push(...) per key, e.g.
-    //     // if (key === 'profile') router.push('/profile');
-    // };
-
     const loadPosts = async () => {
         try {
             const token = await AsyncStorage.getItem('token');
             const response = await axios.get(`${API_URL}/api/community/feed`, {
                 withCredentials: true,
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
+                headers: { Authorization: `Bearer ${token}` },
             });
             const responsePosts = Array.isArray(response.data) ? response.data : response.data?.posts;
             setPosts(Array.isArray(responsePosts) ? responsePosts.map(toPostcardProps) : []);
         } catch (error) {
             console.error('Error fetching feed posts:', error);
             setPosts([]);
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -733,67 +917,156 @@ export default function HomeScreen() {
         loadPosts();
     }, []);
 
-
     const refreshPosts = async () => {
         setRefreshing(true);
         await loadPosts();
         setRefreshing(false);
     };
-    const pressed = () => {
-        console.log('Orb8 pressed');
-    };
+
+    const keyExtractor = useCallback((post: PostcardProps) => post.id, []);
+
+    const renderItem = useCallback(
+        ({ item }: { item: PostcardProps }) => (
+            <Postcard
+                {...item}
+                isVisible={item.id === visibleId}
+                onPressComments={() => setCommentsPostId(item.id)}
+                onClickShare={handleShare}
+            />
+        ),
+        [visibleId, handleShare],
+    );
+
+    /* ----------------------------- render ------------------------------ */
 
     return (
-        <View style={{ flex: 1, backgroundColor: '#000' }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 8 }}>
-                <Pressable
-                    onPress={() => setDrawerOpen(true)}
-                    hitSlop={8}
-                    accessibilityLabel="Open menu"
-                    style={{ width: 36 }}
-                >
-                    <Image
-                        source={{ uri: currentUser?.profilePic }}
-                        style={{ width: 36, height: 36, borderRadius: 18 }}
-                    />
-                </Pressable>
-
-                <Pressable onPress={pressed} className="flex-1 mt-2 p-4">
-                    <Text className="text-center text-2xl font-bold text-white">Orb8</Text>
-                </Pressable>
-
-                <View style={{ width: 36 }} />
-            </View>
-
-            <FlatList
+        <View style={{ flex: 1, backgroundColor: '#000' }} {...swipe.panHandlers}>
+            {/* feed: padding makes room for the header + tray; onScroll drives the tray */}
+            <Animated.FlatList
                 data={posts}
-                keyExtractor={(post) => post.id}
-                renderItem={({ item }) => <Postcard {...item} />}
+                keyExtractor={keyExtractor}
+                renderItem={renderItem}
+                viewabilityConfig={viewabilityConfig}
+                onViewableItemsChanged={onViewableItemsChanged}
+                extraData={visibleId}
                 showsVerticalScrollIndicator={false}
                 refreshing={refreshing}
-                onRefresh={refreshPosts}
-                contentContainerStyle={{ paddingVertical: 12 }}
+                onRefresh={() => {
+                    refreshPosts();
+                    capsules.reload();
+                }}
+                progressViewOffset={headerH + TRAY_H}
+                onScroll={onScroll}
+                scrollEventThrottle={16}
+                contentContainerStyle={{ paddingTop: headerH + TRAY_H + 12, paddingBottom: 12 }}
                 ListEmptyComponent={
-                    <Text style={{ color: 'rgba(255,255,255,0.65)', textAlign: 'center', marginTop: 32 }}>
-                        No posts yet.
-                    </Text>
+                    loading ? null : (
+                        <Text style={{ color: 'rgba(255,255,255,0.65)', textAlign: 'center', marginTop: 32 }}>
+                            No posts yet.
+                        </Text>
+                    )
                 }
+            />
+
+            {/* capsule tray: sits under the header, slides up behind it on scroll */}
+            <Animated.View
+                style={[
+                    { position: 'absolute', top: headerH, left: 0, right: 0, height: TRAY_H, zIndex: 10, elevation: 10 },
+                    trayStyle,
+                ]}
+            >
+                <GlassPanel edge="bottom" intensity={55} style={{ flex: 1, paddingTop: 12 }}>
+                    <CapsuleTray
+                        groups={capsules.groups}
+                        currentUserId={capsules.me?.id}
+                        onAdd={() => router.push('/capsule/create')}
+                        onOpen={(userId, origin) => setViewer({ userId, origin })}
+                    />
+                </GlassPanel>
+            </Animated.View>
+
+            {/* header: always visible, above the tray */}
+            <View
+                onLayout={(e) => setHeaderH(e.nativeEvent.layout.height)}
+                style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20, elevation: 20 }}
+            >
+                <GlassPanel edge="bottom" intensity={60} style={{ paddingTop: insets.top }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 12 }}>
+                        <Pressable
+                            onPress={() => setDrawerOpen(true)}
+                            hitSlop={8}
+                            accessibilityLabel="Open menu"
+                            style={{ width: 36 }}
+                        >
+                            <MenuIcon color="white" />
+                        </Pressable>
+
+                        <Pressable onPress={() => console.log('Orb8 pressed')} className="flex-1 mt-2 p-4">
+                            <Text className="text-center text-2xl font-bold text-white">Orbit</Text>
+                        </Pressable>
+
+                        <View style={{ width: 36 }} />
+                    </View>
+                </GlassPanel>
+            </View>
+
+            <CreatePost
+                user={{
+                    username: currentUser?.username,
+                    profilePic: resolveImg(currentUser?.profilePic),
+                }}
+                onPostCreated={(post, target) => {
+                    if (target === 'feed') refreshPosts();
+                }}
+            />
+
+            {/* overlays: all siblings, none of them take layout space */}
+            <CommentsSheet
+                visible={commentsPostId !== null}
+                postId={commentsPostId}
+                onClose={() => setCommentsPostId(null)}
+                currentUser={{
+                    id: currentUser?.id,
+                    username: currentUser?.username,
+                    profilePic: resolveImg(currentUser?.profilePic),
+                }}
+                onCountChange={(postId, delta) => {
+                    // update that post's comment count in your list or store
+                }}
+            />
+
+            <ShareModal
+                visible={shareId !== null}
+                postId={shareId}
+                friends={friends}
+                orbitals={orbitals}
+                onClose={closeShare}
+            />
+
+            <CapsuleViewer
+                visible={!!viewer && !!capsules.me}
+                groups={capsules.groups}
+                startUserId={viewer?.userId ?? ''}
+                origin={viewer?.origin ?? null}
+                currentUserId={capsules.me?.id ?? ''}
+                onClose={() => setViewer(null)}
+                onViewed={capsules.markSeen}
+                onToggleLike={capsules.toggleLike}
+                onToggleSave={capsules.toggleSave}
+                onDelete={capsules.remove}
+                onCommentAdded={capsules.bumpComments}
             />
 
             <SideDrawer
                 visible={drawerOpen}
                 onClose={() => setDrawerOpen(false)}
-                user={{
-                    name: 'Vivek Mandal',
-                    handle: 'MOGAMBOGAMING18',
-                    avatar: { uri: currentUser?.profilePic },
-                    following: 3,
-                    followers: 0,
-                }}
+                user={currentUser}
                 onSelect={handleSelect}
                 darkMode={darkMode}
                 onToggleDarkMode={setDarkMode}
             />
+
+            <OrbitLoader visible={loading} />
         </View>
     );
 }

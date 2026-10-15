@@ -15,14 +15,15 @@ import * as DocumentPicker from "expo-document-picker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Paperclip, Image as ImageIcon, FileText, X, ArrowUp, Copy, Check, Menu, Search, MessageSquare } from "lucide-react-native";
+import { API_URL } from "../utils";
 
 /* =====================================================================
    SETUP (NativeWind v4): tailwind.config.js presets: [require("nativewind/preset")],
    babel preset "nativewind/babel", metro withNativeWind, `import "./global.css"` in your root.
    Set EXPO_PUBLIC_API_URL in .env.
    ===================================================================== */
-const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:5000";
-const IGRIS_API_URL = `${apiUrl}/api/askigris`;
+// const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:5000";
+const IGRIS_API_URL = `${API_URL}/api/askigris`;
 const authHeaders = async (): Promise<Record<string, string>> => {
     const token = await AsyncStorage.getItem("token");
     return token ? { Authorization: `Bearer ${token}` } : {};

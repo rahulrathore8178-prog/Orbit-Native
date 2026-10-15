@@ -1,5 +1,5 @@
-export const API_URL = process.env.EXPO_API_URL ?? 'http://localhost:5000';
-export const BASE_IMAGE_URL = process.env.EXPO_BASE_URL || 'http://localhost:5000/api/community/posts/image/';
+export const API_URL = process.env.EXPO_PUBLIC_API_URL;
+export const BASE_IMAGE_URL = process.env.EXPO_PUBLIC_BASE_URL;
 
 // url for getting the display image from google drive
 export function getDisplayImageUrl(imageUrl: string | null | undefined): string {
@@ -16,3 +16,12 @@ export const getAuthHeaders = () => {
     const token = localStorage.getItem('token');
     return token ? { Authorization: `Bearer ${token}` } : {};
 };
+
+export const stripHost = (p?: string) => (p ? p.replace(/^https?:\/\/[^/]+/, '') : p)
+
+const API_BASE = (API_URL || 'http://localhost:5000')
+    .replace(/^ws/, 'http')
+    .replace(/\/$/, '')
+
+export const resolveImg = (p?: string) =>
+    !p ? p : /^https?:\/\//.test(p) ? p : `${API_BASE}${p}`

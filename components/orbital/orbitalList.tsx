@@ -1,4 +1,5 @@
-import { router } from 'expo-router';
+import { router, useNavigation } from 'expo-router';
+import { ChevronLeft } from 'lucide-react-native';
 import React, { useCallback, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -13,14 +14,12 @@ import {
     View,
     ViewStyle,
 } from 'react-native';
+import Reanimated, { interpolate, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS, GlassPanel, NeoView } from '../sideDrawer/neo';
+import { COLORS, GlassPanel, NeoView } from '../ui/neo';
 import OrbitIcon from './orbitIcon';
 import { MyOrbital, Orbital, useOrbitals } from './orbitalData';
 import OrbitalCard from './orbitals';
-import { ChevronLeft } from 'lucide-react-native';
-import { useNavigation } from 'expo-router';
-import { interpolate, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
 const TABS = ['Joined orbitals', 'My orbitals'] as const;
 const PAD = 6;
@@ -290,7 +289,7 @@ export default function OrbitalsScreen({ fallbackRoute = "home", size = 40, colo
                 onPressIn={() => { p.value = withTiming(1, { duration: 110 }); }}
                 onPressOut={() => { p.value = withTiming(0, { duration: 260, easing: Easing.bezier(0.22, 1, 0.36, 1) }); }}
             >
-                <Animated.View
+                <Reanimated.View
                     style={[
                         {
                             width: size, height: size, borderRadius: size / 2, alignItems: "center", justifyContent: "center",
@@ -302,7 +301,7 @@ export default function OrbitalsScreen({ fallbackRoute = "home", size = 40, colo
                     ]}
                 >
                     <ChevronLeft size={size * 0.55} color={color} strokeWidth={2.2} />
-                </Animated.View>
+                </Reanimated.View>
             </Pressable>
             <View className="flex-row items-center justify-center gap-3 pt-3">
                 <OrbitIcon size={48} />
