@@ -16,7 +16,7 @@ import { useOpenProfile } from '@/hooks/useOpenProfile';
 import { useTabNavigation } from '@/hooks/useTabNavigation';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useIsFocused } from '@react-navigation/native';
+import { useIsFocused } from "expo-router/react-navigation";
 import axios from 'axios';
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { BlurView } from 'expo-blur';
@@ -958,7 +958,7 @@ export default function HomeScreen() {
                     // capsules.reload();
                 }}
                 progressViewOffset={headerH + TRAY_H}
-                onScroll={onScroll}
+                // onScroll={onScroll}
                 scrollEventThrottle={16}
                 contentContainerStyle={{ paddingTop: headerH + TRAY_H + 12, paddingBottom: 12 }}
                 ListEmptyComponent={
@@ -992,8 +992,8 @@ export default function HomeScreen() {
                 onLayout={(e) => setHeaderH(e.nativeEvent.layout.height)}
                 style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20, elevation: 20 }}
             >
-                <GlassPanel edge="bottom" intensity={60} style={{ paddingTop: insets.top }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 12 }}>
+                <View edge="bottom" intensity={60} style={{ paddingTop: insets.top }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 12, backdropFilter: 'blur(20px)', backgroundColor: 'rgba(0,0,0,0.3)', borderRadius: 28 }}>
                         <Pressable
                             onPress={() => setDrawerOpen(true)}
                             hitSlop={8}
@@ -1002,14 +1002,14 @@ export default function HomeScreen() {
                         >
                             <MenuIcon color="white" />
                         </Pressable>
-
                         <Pressable onPress={() => console.log('Orb8 pressed')} className="flex-1 mt-2 p-4">
                             <Text className="text-center text-2xl font-bold text-white">Orbit</Text>
                         </Pressable>
 
+
                         <View style={{ width: 36 }} />
                     </View>
-                </GlassPanel>
+                </View>
             </View>
 
             <CreatePost

@@ -4,7 +4,7 @@ import {
     Sora_300Light, Sora_400Regular, Sora_500Medium, Sora_600SemiBold,
     useFonts,
 } from "@expo-google-fonts/sora";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation } from "expo-router/react-navigation";
 import { createAsyncThunk } from "@reduxjs/toolkit";
 import axios from "axios";
 import { BlurView } from "expo-blur";
