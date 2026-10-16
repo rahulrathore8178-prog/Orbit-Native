@@ -9,29 +9,29 @@ import { Brain, ChartArea, Home, MessageCircle, Search } from 'lucide-react-nati
 import React from 'react';
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
   const bar = useTabBarLayout();
 
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
+        // tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
         headerShown: false,
         tabBarButton: NeoTabButton,
         tabBarBackground: () => <TabBarGlass />,
         tabBarStyle: {
           // backgroundColor: 'black',
           position: 'absolute',
-          left: 20,
+          left: 50,
           right: 20,
           bottom: bar.bottom,
+          width: 450,
           height: bar.height,
           paddingTop: 0,
           paddingBottom: 0,
           borderTopWidth: 0,
           backgroundColor: 'transparent',
           elevation: 0,
-          shadowColor: '#000',
+          shadowColor: '#ffffff',
           shadowOffset: { width: 0, height: 8 },
           shadowOpacity: 0.25,
           shadowRadius: 20,       // Background color of the bar

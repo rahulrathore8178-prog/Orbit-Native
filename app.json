@@ -7,7 +7,7 @@
     "icon": "./assets/images/Orbit-Logo.png",
     "scheme": "orbitnative",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    // "newArchEnabled": true,
     "android": {
       "package": "com.orb8.app",
       "adaptiveIcon": {
@@ -16,7 +16,7 @@
         "backgroundImage": "./assets/images/Orbit-Logo.png",
         "monochromeImage": "./assets/images/Orbit-Logo.png"
       },
-      "edgeToEdgeEnabled": true,
+      // "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "android.permission.ACCESS_COARSE_LOCATION",

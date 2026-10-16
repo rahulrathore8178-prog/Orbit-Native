@@ -1,8 +1,8 @@
 import React from 'react';
 import { Platform, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { PlatformPressable } from '@react-navigation/elements';
-import type { BottomTabBarButtonProps } from '@react-navigation/bottom-tabs';
+import { PlatformPressable } from "expo-router/react-navigation";
+import type { BottomTabBarButtonProps } from "expo-router/js-tabs";
 import { NeoView } from './neo';
 
 /**

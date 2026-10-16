@@ -15,8 +15,8 @@ import {
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 // npm i @react-native-async-storage/async-storage  (this is RN's equivalent of localStorage)
-import { useNavigation } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+// import { useNavigation } from '@react-navigation/native';
+// import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { router } from 'expo-router';
 import { ChevronLeft } from 'lucide-react-native';
 
@@ -34,7 +34,7 @@ type RootStackParamList = {
     Welcome: undefined;
 };
 
-type SignUpNavigationProp = NativeStackNavigationProp<RootStackParamList, 'SignUp'>;
+// type SignUpNavigationProp = NativeStackNavigationProp<RootStackParamList, 'SignUp'>;
 
 interface RegisteredUser {
     id: string;
@@ -50,7 +50,7 @@ interface RegisterResponse {
 }
 
 export default function SignUpScreen() {
-    const navigation = useNavigation<SignUpNavigationProp>();
+    // const navigation = useNavigation();
 
     const [username, setUsername] = useState('');
     const [email, setEmail] = useState('');
@@ -86,7 +86,10 @@ export default function SignUpScreen() {
                 await AsyncStorage.setItem('user', JSON.stringify(res.data.user));
             }
 
-            navigation.reset({ index: 0, routes: [{ name: 'Welcome' }] });
+            if (router.canDismiss()) {
+                router.dismissAll();   // pop back to the first screen in the stack
+            }
+            router.replace('/home'); // swap it for Welcome
         } catch (err) {
             const error = err as { response?: { data?: { message?: string } } };
             setErrorMsg(error.response?.data?.message ?? 'Registration failed. Please try again.');
