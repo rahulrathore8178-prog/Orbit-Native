@@ -1,3 +1,5 @@
+import { authStorage } from "./auth/authStorage";
+
 export const API_URL = process.env.EXPO_PUBLIC_API_URL;
 export const BASE_IMAGE_URL = process.env.EXPO_PUBLIC_BASE_URL;
 
@@ -13,7 +15,7 @@ export function getDisplayImageUrl(imageUrl: string | null | undefined): string 
 
 // Authentication headers
 export const getAuthHeaders = () => {
-    const token = localStorage.getItem('token');
+    const token = authStorage.getToken();
     return token ? { Authorization: `Bearer ${token}` } : {};
 };
 

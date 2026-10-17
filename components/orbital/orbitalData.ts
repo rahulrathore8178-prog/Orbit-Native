@@ -1,3 +1,4 @@
+import { authStorage } from '@/lib/auth/authStorage';
 import { API_URL } from '@/lib/utils';
 import axios from 'axios';
 import { useCallback, useEffect, useState } from 'react';
@@ -30,20 +31,35 @@ export type Orbital = OrbitalBase & { author: OrbitalCreator };
 /** Item from the "my orbitals" endpoint */
 export type MyOrbital = OrbitalBase & { role: OrbitalRole };
 
-const api = axios.create({ baseURL: API_URL, withCredentials: true });
+const api = axios.create({
+    baseURL: API_URL,
+    withCredentials: true,
+});
 
-// TODO: replace the routes (and unwrap res.data.xxx if your API wraps the array)
-export const fetchAllOrbitals = async (): Promise<Orbital[]> =>
-    (await api.get('/api/orbital/all')).data;
-// console.log('fetchAllOrbitals called, data:', (await api.get('/api/orbital/all')).data);
+api.interceptors.request.use(async (config) => {
+    const token = await authStorage.getToken();
+
+    if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+    }
+
+    return config;
+});
+
+// Accepts either a bare array or an object like { orbitals: [...] }
+export const fetchAllOrbitals = async (): Promise<Orbital[]> => {
+    const res = await api.get('/api/orbital/all');
+    const d = res.data;
+    return Array.isArray(d) ? d : d?.orbitals ?? [];
+};
 
 export const fetchMyOrbitals = async (): Promise<MyOrbital[]> => {
-    const res = await api.get('/api/orbital/mine')
-    console.log('fetchMyOrbitals called, data:', res.data?.orbitals);
+    const res = await api.get('/api/orbital/mine');
     return res?.data?.orbitals || [];
 };
 
 export function useOrbitals() {
+    const [all, setAll] = useState<Orbital[]>([]);
     const [joined, setJoined] = useState<Orbital[]>([]);
     const [mine, setMine] = useState<MyOrbital[]>([]);
     const [loading, setLoading] = useState(true);
@@ -55,13 +71,17 @@ export function useOrbitals() {
         else setLoading(true);
         try {
             setError(null);
-            const [all, my] = await Promise.all([fetchAllOrbitals(), fetchMyOrbitals()]);
+            const [allOrbitals, my] = await Promise.all([fetchAllOrbitals(), fetchMyOrbitals()]);
+            setAll(allOrbitals);
             // For now the Joined tab shows every orbital.
             // Later: point this at your real "joined orbitals" endpoint.
-            setJoined(all);
+            setJoined(allOrbitals);
             setMine(my);
-        } catch {
+        } catch (err: any) {
             setError('Could not load orbitals. Check your connection and try again.');
+            console.error('Error loading orbitals:', err);
+            console.log('STATUS:', err.response?.status);
+            console.log('DATA:', err.response?.data);
         } finally {
             setLoading(false);
             setRefreshing(false);
@@ -73,6 +93,7 @@ export function useOrbitals() {
     }, [load]);
 
     return {
+        all,
         joined,
         mine,
         loading,

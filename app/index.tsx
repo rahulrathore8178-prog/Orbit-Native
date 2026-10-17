@@ -17,12 +17,15 @@ import {
     View,
 } from 'react-native';
 import { API_URL } from '../lib/utils';
+import { useAppDispatch } from '@/redux/store';
+import { signIn } from '@/redux/slice/authSlice';
 
 type FocusedField = 'emailOrUsername' | 'password' | null;
 
 export default function LoginScreen() {
-    // Use expo-router for navigation in this app
-    // const router = useRouter();
+    const dispatch = useAppDispatch();
+    const token =  AsyncStorage.getItem('token');
+
 
     const [emailOrUsername, setEmailOrUsername] = useState('');
     const [password, setPassword] = useState('');
@@ -30,7 +33,6 @@ export default function LoginScreen() {
     const [focusedField, setFocusedField] = useState<FocusedField>(null);
     const [loading, setLoading] = useState(false);
     const [errorMsg, setErrorMsg] = useState('');
-    const [checkingAuth, setCheckingAuth] = useState(true);
 
     // --- Very small mount animation (fade + slide up) using RN's built-in Animated API ---
     const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -38,72 +40,29 @@ export default function LoginScreen() {
 
     useEffect(() => {
         Animated.parallel([
-            Animated.timing(fadeAnim, {
-                toValue: 1,
-                duration: 600,
-                useNativeDriver: true,
-            }),
-            Animated.timing(slideAnim, {
-                toValue: 0,
-                duration: 600,
-                useNativeDriver: true,
-            }),
+            Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
+            Animated.timing(slideAnim, { toValue: 0, duration: 600, useNativeDriver: true }),
         ]).start();
     }, [fadeAnim, slideAnim]);
-
-    // On mount, check for an existing token and redirect to tabs if present
-    useEffect(() => {
-        let mounted = true;
-        (async () => {
-            try {
-                const token = await AsyncStorage.getItem('token');
-                if (mounted && token) {
-                    router.replace('/(tabs)/home');
-                    return;
-                }
-            } catch (e) {
-                // ignore and show login
-                console.warn('Error checking stored token', e);
-            } finally {
-                if (mounted) setCheckingAuth(false);
-            }
-        })();
-        return () => {
-            mounted = false;
-        };
-    }, [router]);
 
     const handleLogin = async () => {
         setErrorMsg('');
         setLoading(true);
         try {
-            const res = await axios.post(
-                `${API_URL}/api/auth/user/login`,
-                { emailOrUsername, password },
-                {
-                    // NOTE: withCredentials relies on a browser cookie jar, which native doesn't have.
-                    // If your backend sets an auth cookie on login, it won't persist here automatically —
-                    // prefer returning a token (as below) or use @react-native-cookies/cookies.
-                    withCredentials: true,
-                }
-            );
-            // No `window` on native — DeviceEventEmitter stands in for the browser's
-            // custom-event broadcast. (For anything bigger, Context/Zustand/Redux is more idiomatic.)
+            const res = await axios.post(`${API_URL}/api/auth/user/login`, {
+                emailOrUsername,
+                password,
+            });
+            console.log(res.data)
+            console.log(res.headers)
+
+            if (!res.data?.token) throw new Error('Server did not return a token');
+
+            // Saves token + user, then flips auth status. The guard in _layout.tsx
+            // moves the user to the tabs, so no router call is needed here.
+            await dispatch(signIn({ token: res.data.token, user: res.data.user })).unwrap();
+
             DeviceEventEmitter.emit('auth:user-updated');
-            console.log('clicked login')
-            console.log('Login successful:', res.data);
-
-            // persist token for subsequent API calls
-            if (res.data?.token) {
-                await AsyncStorage.setItem('token', res.data.token);
-            }
-
-            if (res.data?.user) {
-                await AsyncStorage.setItem('user', JSON.stringify(res.data.user));
-            }
-
-            setLoading(false);
-            router.replace('/home');
         } catch (err: any) {
             setErrorMsg(
                 err.response?.data?.message ||
@@ -111,6 +70,7 @@ export default function LoginScreen() {
                 err.message ||
                 'Login failed. Please check your credentials.'
             );
+        } finally {
             setLoading(false);
         }
     };
@@ -118,18 +78,6 @@ export default function LoginScreen() {
     const handleForgotPassword = () => {
         // TODO: navigate to your "forgot password" flow
     };
-
-    if (checkingAuth) {
-        return (
-            <SafeAreaView style={styles.safeArea}>
-                <StatusBar barStyle="light-content" backgroundColor="#121214" />
-                <View style={[styles.flex, { justifyContent: 'center', alignItems: 'center' }]}>
-                    <ActivityIndicator size="large" color={ACCENT_BLUE} />
-                </View>
-            </SafeAreaView>
-        );
-    }
-
     return (
         <SafeAreaView style={styles.safeArea}>
             <StatusBar barStyle="light-content" backgroundColor="#121214" />

@@ -286,7 +286,7 @@ function NeoWide({ label, onPress }: { label: string; onPress: () => void }) {
         shadowOpacity: interpolate(p.value, [0, 1], [0.8, 0.15]),
     }));
     return (
-        <Pressable onPress={onPress} accessibilityRole="button" onPressIn={() => { p.value = withTiming(1, { duration: 110 }); }} onPressOut={() => { p.value = withTiming(0, { duration: 260, easing: EASE_OUT }); }}>
+        <Pressable onPress={onPress} accessibilityRole="button">
             <Animated.View style={[{ borderRadius: 16, borderWidth: 1, borderColor: W(0.08), borderTopColor: W(0.14), paddingVertical: 10, alignItems: "center", shadowColor: "#000", shadowOffset: { width: 3, height: 4 }, shadowRadius: 8, elevation: 5 }, a]}>
                 <Text className="text-sm text-zinc-200">{label}</Text>
             </Animated.View>

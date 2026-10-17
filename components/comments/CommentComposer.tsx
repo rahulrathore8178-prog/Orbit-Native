@@ -8,8 +8,7 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import { Image as ImageIcon, Mic, Send, Smile, Square, Trash2, Video as VideoIcon, X } from 'lucide-react-native';
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Image, Keyboard, Platform, Pressable, Text, TextInput, View } from 'react-native';
-import Animated, { Easing } from 'react-native-reanimated';
+import { ActivityIndicator, Image, Keyboard, Platform, Pressable, Text, TextInput, View, Animated, Easing } from 'react-native';
 import { IconButton, RecordingBar, VideoPreview, VoiceNotePreview } from '../posts/PostMedia';
 import {
     ALLOWED_IMAGE_TYPES,

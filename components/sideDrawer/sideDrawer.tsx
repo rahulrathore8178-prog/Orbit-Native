@@ -171,7 +171,7 @@ function SideDrawer({
 
             {/* Drawer */}
             <GestureDetector gesture={pan}>
-                <Reanimated.View style={[styles.drawer, { width: drawerW }, drawerStyle]}>
+                <Reanimated.View style={[styles.drawer, { zIndex: 999 }, { width: drawerW }, drawerStyle]}>
                     {/* iOS: real blur. Android: a solid layer, because re-blurring a moving view
                         every frame is the biggest cause of drawer lag on Android. */}
                     {Platform.OS === 'ios' ? (
@@ -407,7 +407,7 @@ function NeoSwitch({
 
 const styles = StyleSheet.create({
     root: {
-        ...StyleSheet.absoluteFillObject,
+        ...StyleSheet.absoluteFill,
         zIndex: 1000,
         elevation: 1000, // Android z-order
     },

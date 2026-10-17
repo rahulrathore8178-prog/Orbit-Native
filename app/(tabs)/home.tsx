@@ -1,6 +1,9 @@
 // import { router } from '@/.expo/types/router';
 import { CapsuleTray } from '@/components/capsule/CapsuleTray';
 import { CapsuleViewer } from '@/components/capsule/CapsuleViewer';
+import { FeedPager } from '@/components/feed/FeedPager';
+import { FeedTabs } from '@/components/feed/FeedTabs';
+import { OrbitalFeedList } from '@/components/feed/OrbitalFeedList';
 import CommentsSheet from '@/components/comments/CommentsSheet';
 import CreatePost from '@/components/posts/CreatePost';
 import type { ShareTarget } from '@/components/posts/ShareModal';
@@ -11,7 +14,8 @@ import { CAPSULE } from '@/constants/capsule/constants';
 import { Rect } from '@/constants/capsule/types';
 import { useCapsules } from '@/hooks/capsule/useCapsules';
 import { useCollapsibleTray } from '@/hooks/capsule/useCollapsibleTray';
-import { useHorizontalSwipe } from '@/hooks/useHorizontalSwipe';
+import { useFeedTabs } from '@/hooks/feed/useFeedTabs';
+import { useOrbitalFeed } from '@/hooks/feed/useOrbitalFeed';
 import { useOpenProfile } from '@/hooks/useOpenProfile';
 import { useTabNavigation } from '@/hooks/useTabNavigation';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -19,7 +23,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useIsFocused } from "expo-router/react-navigation";
 import axios from 'axios';
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
-import { BlurView } from 'expo-blur';
+import { BlurTargetView, BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics'; // optional: npx expo install expo-haptics
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect, useRouter } from 'expo-router';
@@ -32,15 +36,17 @@ import {
     Image,
     Platform,
     Pressable,
+    StyleSheet,
     Text,
     TouchableOpacity,
     useWindowDimensions,
     View
 } from 'react-native';
-import Reanimated from 'react-native-reanimated';
+import Reanimated, { useAnimatedStyle } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import SideDrawer, { DrawerItemKey } from '../../components/sideDrawer/sideDrawer';
 import { API_URL, BASE_IMAGE_URL, getDisplayImageUrl, resolveImg } from '../../lib/utils';
+import FrostedGlass from '@/components/ui/FrostedGlass';
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -67,6 +73,8 @@ export interface PostcardProps {
     commentsCount: number;
     isLikedByCurrentUser: boolean;
     isOwn?: boolean;
+    /** Set on posts that belong to an orbital (shown as a chip on the Orbitals tab). */
+    orbital?: { id?: string; name?: string };
     handleLike: (id: string, nextLiked: boolean) => void;
     onComment?: (id: string) => void;
     onDelete?: (id: string) => void;
@@ -75,6 +83,7 @@ export interface PostcardProps {
     /** Pass this from a FlatList viewabilityConfig to auto-pause off-screen media. */
     isVisible?: boolean;
     onClickShare?: (id: string) => void;
+    onPressComments?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -759,6 +768,7 @@ const toPostcardProps = (post: ApiPost): PostcardProps => ({
     commentsCount: post.commentsCount ?? 0,
     isLikedByCurrentUser: post.isLikedByCurrentUser ?? false,
     isOwn: post.isOwn,
+    orbital: post.orbital,
     handleLike: () => { },
     onClickShare: () => { },
 });
@@ -796,6 +806,7 @@ export default function HomeScreen() {
     const [currentUser, setCurrentUser] = useState<StoredUser | null>(null);
     const [commentsPostId, setCommentsPostId] = useState<string | null>(null);
     const [visibleId, setVisibleId] = useState<string | null>(null);
+    const [orbitalVisibleId, setOrbitalVisibleId] = useState<string | null>(null);
 
     // share
     const [shareId, setShareId] = useState<string | null>(null);
@@ -804,19 +815,23 @@ export default function HomeScreen() {
     const shareTargetsLoaded = useRef(false);
 
     const { nextTab } = useTabNavigation();
-    const swipe = useHorizontalSwipe({
-        onSwipeRight: () => setDrawerOpen(true),
-    });
+    // Two home tabs. Swiping right on "Your feed" still opens the drawer, like before.
+    const tabs = useFeedTabs({ onSwipeRightFromFirst: () => setDrawerOpen(true) });
+    const orbitalFeed = useOrbitalFeed<PostcardProps>(toPostcardProps);
     const TRAY_H = CAPSULE.TRAY_ITEM_H + 24;
 
     // inside the component:
     const router = useRouter();
     const insets = useSafeAreaInsets();
-    // const capsules = useCapsules(!!currentUser?.id);
-    // console.log('capsules', capsules);
-    const [headerH, setHeaderH] = useState(insets.top + 80); // corrected by onLayout
+    const capsules = useCapsules();
+    console.log('capsules', capsules);
     const [viewer, setViewer] = useState<{ userId: string; origin: Rect } | null>(null);
+    const blurTarget = useRef<View | null>(null);
+    const [headerH, setHeaderH] = useState(insets.top + 64); // estimate until onLayout fires
     const { onScroll, trayStyle } = useCollapsibleTray(TRAY_H);
+    // Capsules belong to "Your feed": fade the tray out as you swipe to Orbitals.
+    const trayFade = useAnimatedStyle(() => ({ opacity: 1 - tabs.position.get() }));
+    const feedTop = headerH + TRAY_H; // Orbitals has no tray, so it only clears the header
 
     // refetch capsules when returning from the create screen (skips first focus)
     const firstFocus = useRef(true);
@@ -876,6 +891,13 @@ export default function HomeScreen() {
         setVisibleId(first?.item?.id ?? null);
     }).current;
 
+    // Own callback per list: both lists are always mounted, so one shared callback would let the
+    // off-screen page steal autoplay from the visible one.
+    const onOrbitalViewableItemsChanged = useRef(({ viewableItems }: any) => {
+        const first = viewableItems.find((v: any) => v.isViewable);
+        setOrbitalVisibleId(first?.item?.id ?? null);
+    }).current;
+
     useEffect(() => {
         (async () => {
             try {
@@ -884,7 +906,7 @@ export default function HomeScreen() {
                 const user = JSON.parse(raw);
                 setCurrentUser({ ...user, profilePic: stripHost(user?.profilePic) });
             } catch (error) {
-                console.error('Unable to load current user:', error);
+                console.error('Error loading current user:', error);
                 setCurrentUser(null);
             }
         })();
@@ -931,85 +953,137 @@ export default function HomeScreen() {
         ({ item }: { item: PostcardProps }) => (
             <Postcard
                 {...item}
-                isVisible={item.id === visibleId}
+                isVisible={tabs.tab === 0 && item.id === visibleId}
                 onPressComments={() => setCommentsPostId(item.id)}
                 onClickShare={handleShare}
             />
         ),
-        [visibleId, handleShare],
+        [visibleId, tabs.tab, handleShare],
+    );
+
+    const renderOrbitalItem = useCallback(
+        ({ item }: { item: PostcardProps }) => (
+            <Postcard
+                {...item}
+                isVisible={tabs.tab === 1 && item.id === orbitalVisibleId}
+                onPressComments={() => setCommentsPostId(item.id)}
+                onClickShare={handleShare}
+            />
+        ),
+        [orbitalVisibleId, tabs.tab, handleShare],
     );
 
     /* ----------------------------- render ------------------------------ */
 
     return (
-        <View style={{ flex: 1, backgroundColor: '#000' }} {...swipe.panHandlers}>
-            {/* feed: padding makes room for the header + tray; onScroll drives the tray */}
-            <Animated.FlatList
-                data={posts}
-                keyExtractor={keyExtractor}
-                renderItem={renderItem}
-                viewabilityConfig={viewabilityConfig}
-                onViewableItemsChanged={onViewableItemsChanged}
-                extraData={visibleId}
-                showsVerticalScrollIndicator={false}
-                refreshing={refreshing}
-                onRefresh={() => {
-                    refreshPosts();
-                    // capsules.reload();
-                }}
-                progressViewOffset={headerH + TRAY_H}
-                // onScroll={onScroll}
-                scrollEventThrottle={16}
-                contentContainerStyle={{ paddingTop: headerH + TRAY_H + 12, paddingBottom: 12 }}
-                ListEmptyComponent={
-                    loading ? null : (
-                        <Text style={{ color: 'rgba(255,255,255,0.65)', textAlign: 'center', marginTop: 32 }}>
-                            No posts yet.
-                        </Text>
-                    )
-                }
-            />
+        <View className="flex-1 bg-black">
+            {/* Everything that sits behind the glass. Must come BEFORE the BlurViews in the tree. */}
+            <BlurTargetView ref={blurTarget} style={StyleSheet.absoluteFill}>
+                <FeedPager position={tabs.position} panHandlers={tabs.panHandlers}>
+                    {/* page 1: Your feed */}
+                    <Reanimated.FlatList
+                        data={posts}
+                        keyExtractor={keyExtractor}
+                        renderItem={renderItem}
+                        viewabilityConfig={viewabilityConfig}
+                        onViewableItemsChanged={onViewableItemsChanged}
+                        extraData={`${visibleId}-${tabs.tab}`}
+                        showsVerticalScrollIndicator={false}
+                        refreshing={refreshing}
+                        onRefresh={() => {
+                            refreshPosts();
+                            // capsules.reload();
+                        }}
+                        progressViewOffset={feedTop}
+                        onScroll={onScroll}
+                        scrollEventThrottle={16}
+                        contentContainerStyle={{ paddingTop: feedTop + 12, paddingBottom: 12 }}
+                        ListEmptyComponent={
+                            loading ? null : <Text className="mt-8 text-center text-white/60">No posts yet.</Text>
+                        }
+                    />
 
-            {/* capsule tray: sits under the header, slides up behind it on scroll */}
-            {/* <Animated.View
+                    {/* page 2: Orbitals (data, refresh, paging and empty states live in useOrbitalFeed) */}
+                    <OrbitalFeedList
+                        feed={orbitalFeed}
+                        renderItem={renderOrbitalItem}
+                        topInset={headerH}
+                        onBrowse={() => router.push('/orbital')}
+                        listProps={{
+                            viewabilityConfig,
+                            onViewableItemsChanged: onOrbitalViewableItemsChanged,
+                            extraData: `${orbitalVisibleId}-${tabs.tab}`,
+                            showsVerticalScrollIndicator: false,
+                            onScroll,
+                            scrollEventThrottle: 16,
+                        }}
+                    />
+                </FeedPager>
+            </BlurTargetView>
+
+            {/* Capsule tray: sits under the header and slides up behind it on scroll */}
+            <Reanimated.View
+                pointerEvents="box-none"
                 style={[
-                    { position: 'absolute', top: headerH, left: 0, right: 0, height: TRAY_H, zIndex: 10, elevation: 10 },
+                    { position: 'absolute', left: 0, right: 0, top: headerH, marginTop: 0, height: TRAY_H, zIndex: 10 },
                     trayStyle,
                 ]}
             >
-                <GlassPanel edge="bottom" intensity={55} style={{ flex: 1, paddingTop: 12 }}>
-                    <CapsuleTray
-                        groups={capsules.groups}
-                        currentUserId={capsules.me?.id}
-                        onAdd={() => router.push('/capsule/create')}
-                        onOpen={(userId, origin) => setViewer({ userId, origin })}
-                    />
-                </GlassPanel>
-            </Animated.View> */}
-
-            {/* header: always visible, above the tray */}
-            <View
-                onLayout={(e) => setHeaderH(e.nativeEvent.layout.height)}
-                style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20, elevation: 20 }}
-            >
-                <View edge="bottom" intensity={60} style={{ paddingTop: insets.top }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 12, backdropFilter: 'blur(20px)', backgroundColor: 'rgba(0,0,0,0.3)', borderRadius: 28 }}>
-                        <Pressable
-                            onPress={() => setDrawerOpen(true)}
-                            hitSlop={8}
-                            accessibilityLabel="Open menu"
-                            style={{ width: 36 }}
-                        >
-                            <MenuIcon color="white" />
-                        </Pressable>
-                        <Pressable onPress={() => console.log('Orb8 pressed')} className="flex-1 mt-2 p-4">
-                            <Text className="text-center text-2xl font-bold text-white">Orbit</Text>
-                        </Pressable>
-
-
-                        <View style={{ width: 36 }} />
+                <Reanimated.View
+                    style={[{ flex: 1 }, trayFade]}
+                    pointerEvents={tabs.tab === 1 ? 'none' : 'box-none'}
+                >
+                    <View className="flex-1 px-3">
+                        <FrostedGlass blurTarget={blurTarget} className="flex-1 rounded-3xl border pt-3">
+                            <CapsuleTray
+                                groups={capsules.groups}
+                                currentUserId={capsules.me?.id}
+                                onAdd={() => router.push('/capsule/create')}
+                                onOpen={(userId, origin) => setViewer({ userId, origin })}
+                            />
+                        </FrostedGlass>
                     </View>
-                </View>
+                </Reanimated.View>
+            </Reanimated.View>
+
+            {/* Header: always visible, above the tray */}
+            <View
+                className="absolute inset-x-0 top-0 z-20"
+                onLayout={(e) => setHeaderH(e.nativeEvent.layout.height)}
+            >
+                <FrostedGlass blurTarget={blurTarget} intensity={80} className="rounded-b-[28px] border-b">
+                    <View style={{ paddingTop: insets.top }}>
+                        <View className="flex-row items-center px-4 pb-3 pt-2">
+                            <Pressable
+                                onPress={() => setDrawerOpen(true)}
+                                hitSlop={8}
+                                accessibilityLabel="Open menu"
+                                className="w-9"
+                            >
+                                <MenuIcon color="white" />
+                            </Pressable>
+
+                            <Pressable onPress={() => console.log('Orbit pressed')} className="flex-1 py-2">
+                                <Text
+                                    className="text-center text-2xl font-bold tracking-widest text-white/90"
+                                    style={{
+                                        textShadowColor: 'rgba(255,255,255,0.45)',
+                                        textShadowOffset: { width: 0, height: 0 },
+                                        textShadowRadius: 12,
+                                    }}
+                                >
+                                    Orbit
+                                </Text>
+                            </Pressable>
+
+                            <View className="w-9" />
+                        </View>
+
+                        <View className="px-4 pb-3">
+                            <FeedTabs position={tabs.position} active={tabs.tab} onSelect={tabs.goTo} />
+                        </View>
+                    </View>
+                </FrostedGlass>
             </View>
 
             <CreatePost
@@ -1045,7 +1119,7 @@ export default function HomeScreen() {
                 onClose={closeShare}
             />
 
-            {/* <CapsuleViewer
+            <CapsuleViewer
                 visible={!!viewer && !!capsules.me}
                 groups={capsules.groups}
                 startUserId={viewer?.userId ?? ''}
@@ -1057,7 +1131,7 @@ export default function HomeScreen() {
                 onToggleSave={capsules.toggleSave}
                 onDelete={capsules.remove}
                 onCommentAdded={capsules.bumpComments}
-            /> */}
+            />
 
             <SideDrawer
                 visible={drawerOpen}

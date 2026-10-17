@@ -312,7 +312,7 @@ export default function CommentsSheet({ visible, postId, onClose, currentUser, o
 
             <Animated.View pointerEvents="box-none" style={{ flex: 1, justifyContent: 'flex-end', paddingBottom: kbAnim }}>
                 <Animated.View style={[styles.sheet, { height: height * 0.88, transform: [{ translateY }] }]}>
-                    <BlurView intensity={60} tint="dark" experimentalBlurMethod="dimezisBlurView" style={StyleSheet.absoluteFill} />
+                    <BlurView intensity={60} tint="dark" blurMethod="dimezisBlurView" style={StyleSheet.absoluteFill} />
                     <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(10,12,18,0.86)' }]} />
 
                     <View {...pan.panHandlers} style={styles.grabberArea}>

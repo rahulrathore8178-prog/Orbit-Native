@@ -7,7 +7,6 @@
     "icon": "./assets/images/Orbit-Logo.png",
     "scheme": "orbitnative",
     "userInterfaceStyle": "automatic",
-    // "newArchEnabled": true,
     "android": {
       "package": "com.orb8.app",
       "adaptiveIcon": {
@@ -16,7 +15,6 @@
         "backgroundImage": "./assets/images/Orbit-Logo.png",
         "monochromeImage": "./assets/images/Orbit-Logo.png"
       },
-      // "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "android.permission.ACCESS_COARSE_LOCATION",
@@ -77,11 +75,12 @@
         {
           "microphonePermission": "Allow $(PRODUCT_NAME) to record voice notes."
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,
-      "reactCompiler": false,
+      "reactCompiler": false
     },
     "extra": {
       "router": {},

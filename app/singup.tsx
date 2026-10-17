@@ -19,6 +19,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { router } from 'expo-router';
 import { ChevronLeft } from 'lucide-react-native';
+import { signIn } from '@/redux/slice/authSlice';
+import { useAppDispatch } from '@/redux/store';
 
 // TODO: import this from wherever your login screen defines it, so both
 // screens use the exact same accent color instead of two hardcoded copies.
@@ -50,7 +52,7 @@ interface RegisterResponse {
 }
 
 export default function SignUpScreen() {
-    // const navigation = useNavigation();
+    const dispatch = useAppDispatch();
 
     const [username, setUsername] = useState('');
     const [email, setEmail] = useState('');
@@ -79,20 +81,20 @@ export default function SignUpScreen() {
                 password,
             });
 
-            if (res.data?.token) {
-                await AsyncStorage.setItem('token', res.data.token);
-            }
-            if (res.data?.user) {
-                await AsyncStorage.setItem('user', JSON.stringify(res.data.user));
+            if (!res.data?.token || !res.data?.user) {
+                throw new Error('Registration succeeded but the server did not return a session. Please log in.');
             }
 
-            if (router.canDismiss()) {
-                router.dismissAll();   // pop back to the first screen in the stack
-            }
-            router.replace('/home'); // swap it for Welcome
+            // Saves token + user, then flips auth status. The guard in _layout.tsx
+            // moves the user to the tabs, so no router call is needed here.
+            await dispatch(signIn({ token: res.data.token, user: res.data.user })).unwrap();
         } catch (err) {
-            const error = err as { response?: { data?: { message?: string } } };
-            setErrorMsg(error.response?.data?.message ?? 'Registration failed. Please try again.');
+            const error = err as { response?: { data?: { message?: string } }; message?: string };
+            setErrorMsg(
+                error.response?.data?.message ??
+                error.message ??
+                'Registration failed. Please try again.'
+            );
         } finally {
             setLoading(false);
         }

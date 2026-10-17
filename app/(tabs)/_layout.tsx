@@ -1,4 +1,5 @@
 import { HapticTab } from '@/components/haptic-tab';
+import { FloatingTabBar } from '@/components/ui/FloatingTabBar';
 import NeoTabButton from '@/components/ui/NeoTabButton';
 import TabBarGlass from '@/components/ui/TabBarGlass';
 import { Colors } from '@/constants/theme';
@@ -6,37 +7,20 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useTabBarLayout } from '@/hooks/useTabBarLayout';
 import { Stack, Tabs } from 'expo-router';
 import { Brain, ChartArea, Home, MessageCircle, Search } from 'lucide-react-native';
-import React from 'react';
+import { useWindowDimensions } from 'react-native';
 
 export default function TabLayout() {
   const bar = useTabBarLayout();
+  const { width: screenWidth } = useWindowDimensions();
+
+  const BAR_WIDTH = Math.min(screenWidth - 40, 360); // 20px gap each side, capped
+  const BAR_LEFT = (screenWidth - BAR_WIDTH) / 2;    // exact centre
 
   return (
     <Tabs
-      screenOptions={{
-        // tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
-        headerShown: false,
-        tabBarButton: NeoTabButton,
-        tabBarBackground: () => <TabBarGlass />,
-        tabBarStyle: {
-          // backgroundColor: 'black',
-          position: 'absolute',
-          left: 50,
-          right: 20,
-          bottom: bar.bottom,
-          width: 450,
-          height: bar.height,
-          paddingTop: 0,
-          paddingBottom: 0,
-          borderTopWidth: 0,
-          backgroundColor: 'transparent',
-          elevation: 0,
-          shadowColor: '#ffffff',
-          shadowOffset: { width: 0, height: 8 },
-          shadowOpacity: 0.25,
-          shadowRadius: 20,       // Background color of the bar
-        },
-      }}>
+      tabBar={(props) => <FloatingTabBar {...props} />}
+      screenOptions={{ headerShown: false }}
+    >
       <Tabs.Screen
         name="home"
         options={{

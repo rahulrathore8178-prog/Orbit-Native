@@ -34,7 +34,6 @@ const ROLE_META = {
 } as const;
 
 export default function OrbitalCard({ orbital, onPress }: Props) {
-    console.log('Rendering OrbitalCard for orbital:', orbital);
     const [imgFailed, setImgFailed] = useState(false);
     const [avatarFailed, setAvatarFailed] = useState(false);
 

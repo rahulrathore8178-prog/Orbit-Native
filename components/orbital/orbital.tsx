@@ -67,15 +67,25 @@ type DetailResponse = Partial<DetailOrbital> & {
 
 /* ---------- api ---------- */
 // getAuthHeaders may be sync (web) or async (AsyncStorage on native); await handles both
-async function api<T = any>(path: string, method: Method = 'get', data?: unknown) {
-    return axios<T>({
-        url: `${API_URL}/api/orbital${path}`,
-        method,
-        data,
-        headers: { ...(await getAuthHeaders()) },
-    });
+async function api<T = any>(
+    path: string,
+    method: Method = 'get',
+    data?: unknown
+) {
+    try {
+        const headers = await getAuthHeaders();
+        return axios<T>({
+            url: `${API_URL}/api/orbital${path}`,
+            method,
+            data,
+            headers,
+            withCredentials: true,
+        });
+    } catch (err) {
+        console.log('🚨 GETAUTHHEADERS ERROR:', err);
+        throw err;
+    }
 }
-
 const errMsg = (e: unknown, fallback: string) =>
     (axios.isAxiosError(e) ? (e.response?.data as { message?: string } | undefined)?.message : undefined) ??
     fallback;
@@ -484,8 +494,14 @@ export default function OrbitalDetail() {
     }));
 
     /* ---------- data ---------- */
+
+
     useEffect(() => {
-        if (!orbitalId) return;
+        if (!orbitalId) {
+            console.log('NO ORBITAL ID');
+            return;
+        }
+
         let cancelled = false;
         api<DetailResponse>(`/${orbitalId}`)
             .then(({ data }) => {
