@@ -1,9 +1,4 @@
-import { HapticTab } from '@/components/haptic-tab';
 import { FloatingTabBar } from '@/components/ui/FloatingTabBar';
-import NeoTabButton from '@/components/ui/NeoTabButton';
-import TabBarGlass from '@/components/ui/TabBarGlass';
-import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useTabBarLayout } from '@/hooks/useTabBarLayout';
 import { Stack, Tabs } from 'expo-router';
 import { Brain, ChartArea, Home, MessageCircle, Search } from 'lucide-react-native';

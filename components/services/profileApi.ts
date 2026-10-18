@@ -69,7 +69,7 @@ export const profileApi = {
     async uploadAvatar(uri: string): Promise<string | undefined> {
         const token = await AsyncStorage.getItem('token');
         const formData = new FormData();
-
+        try {
         if (Platform.OS === 'web') {
             // Browser needs a real Blob/File
             const blob = await (await fetch(uri)).blob();
@@ -89,7 +89,7 @@ export const profileApi = {
             `${API_URL}${ENDPOINTS.avatar}`,
             formData,
             {
-                withCredentials: Platform.OS === 'web', // cookies only matter in the browser
+                withCredentials: true, // cookies only matter in the browser
                 headers: {
                     Authorization: `Bearer ${token}`,
                     // Don't set Content-Type: axios/the browser adds the multipart boundary itself
@@ -100,6 +100,10 @@ export const profileApi = {
 
         const data = response.data;
         return resolveUri(data.profilePic ?? data.user?.profilePic);
+    } catch (error) {
+        console.error('Error uploading avatar:', error);
+        console.error('Error details:', error.response?.data ?? error.message);
+    }
     },
 
     removeAvatar: () => request({ url: ENDPOINTS.avatar, method: 'DELETE' }),

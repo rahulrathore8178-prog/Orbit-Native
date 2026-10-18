@@ -10,7 +10,7 @@ import {
     Orbit,
     Settings,
     Sun,
-    User
+    User as UserIcon
 } from 'lucide-react-native';
 import React, { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
@@ -21,6 +21,7 @@ import {
     ScrollView,
     StyleSheet,
     Text,
+    Image,
     View,
     useWindowDimensions
 } from 'react-native';
@@ -206,15 +207,18 @@ function SideDrawer({
                         <GlassPanel radius={26} style={{ padding: 16 }}>
                             <View style={styles.headerTop}>
                                 <NeoView radius={36} style={{ width: 68, height: 68 }}>
-                                    {user?.profilePic && (
-                                    //     <Image source={{ uri: resolveImg(user?.profilePic) }} style={styles.avatar} />
-                                    // ) : (
-                                    //     <Text style={styles.avatarFallback}>
-                                    //         {user?.username?.charAt(0).toUpperCase()}
-                                    //     </Text>
-                                    <User color='white' />
+                                    {user?.profilePic ? (
+                                        <Image
+                                            source={{ uri: user.profilePic }}
+                                            style={styles.avatar}
+                                        />
+                                    ) : (
+                                        <View>
+                                            <UserIcon color="white" size={32} />
+                                        </View>
                                     )}
                                 </NeoView>
+
 
                                 <Pressable
                                     onPress={onPressMore}

@@ -21,7 +21,7 @@ export const getAuthHeaders = () => {
 
 export const stripHost = (p?: string) => (p ? p.replace(/^https?:\/\/[^/]+/, '') : p)
 
-const API_BASE = (API_URL || 'http://localhost:5000')
+export const API_BASE = (API_URL || 'https://localhost:5000')
     .replace(/^ws/, 'http')
     .replace(/\/$/, '')
 

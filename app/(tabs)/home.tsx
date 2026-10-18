@@ -448,6 +448,7 @@ const Postcard = ({
         if (isOwn) router.navigate('/(tabs)/profile');
         else openProfile(author.id);
     };
+    console.log(author.profilePic);
 
     return (
         <GlassPanel
@@ -500,7 +501,7 @@ const Postcard = ({
                         <View style={{ marginRight: 12 }}>
                             {author.profilePic ? (
                                 <Image
-                                    source={{ uri: resolveImg(author.profilePic) }}
+                                    source={{ uri: author.profilePic }}
                                     style={{
                                         width: 36,
                                         height: 36,
@@ -920,6 +921,14 @@ export default function HomeScreen() {
                 headers: { Authorization: `Bearer ${token}` },
             });
             const responsePosts = Array.isArray(response.data) ? response.data : response.data?.posts;
+            responsePosts?.forEach((post) => {
+                console.log({
+                    user: post.author?.username,
+                    raw: post.author?.profilePic,
+                    resolved: resolveImg(post.author?.profilePic),
+                });
+            });
+            console.log('Fetched posts:', responsePosts);
             setPosts(Array.isArray(responsePosts) ? responsePosts.map(toPostcardProps) : []);
         } catch (error) {
             console.log('API_URL =', API_URL);
@@ -1079,8 +1088,12 @@ export default function HomeScreen() {
                             <View className="w-9" />
                         </View>
 
-                        <View className="px-4 pb-3">
-                            <FeedTabs position={tabs.position} active={tabs.tab} onSelect={tabs.goTo} />
+                        <View className="items-center px-4 pb-3">
+                            <FeedTabs
+                                position={tabs.position}
+                                active={tabs.tab}
+                                onSelect={tabs.goTo}
+                            />
                         </View>
                     </View>
                 </FrostedGlass>

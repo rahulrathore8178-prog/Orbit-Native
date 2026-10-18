@@ -8,7 +8,8 @@ const BORDER = 1;
 const PILL_WIDTH = 70;
 const PILL_HEIGHT = 50;
 
-export function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
+export function FloatingTabBar(props: any) {
+  const { state, descriptors, navigation } = props;
     const { width } = useWindowDimensions();
     const insets = useSafeAreaInsets();
 

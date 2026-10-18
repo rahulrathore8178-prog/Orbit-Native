@@ -72,8 +72,18 @@ export function FeedTabs({ position, active, onSelect }: Props) {
         <View
             onLayout={(e) => trackWidth.set(e.nativeEvent.layout.width)}
             accessibilityRole="tablist"
-            className="flex-row rounded-full border border-white/10 bg-black/30 p-1"
-        >
+            className="
+                self-center
+                w-[90%]
+                max-w-[400px]
+                flex-row
+                rounded-full
+                border
+                border-white/10
+                bg-black/30
+                p-1
+                "
+            >
             <Animated.View pointerEvents="none" style={[styles.pill, pill]} />
             {FEED_TABS.map((label, i) => (
                 <TabLabel

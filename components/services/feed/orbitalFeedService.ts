@@ -11,7 +11,7 @@ export type OrbitalFeedPage = { posts: unknown[]; nextCursor: string | null };
  * ⚠️ ASSUMED route: GET /api/orbitals/feed  (controller in backend/orbitalFeed.controller.js)
  */
 export async function fetchOrbitalFeed(cursor: string | null, signal: AbortSignal): Promise<OrbitalFeedPage> {
-    const { data } = await axios.get(`${API_URL}/api/orbitals/all`, {
+    const { data } = await axios.get(`${API_URL}/api/community/feed?type=orbital`, {
         params: { cursor: cursor ?? undefined, limit: PAGE_SIZE },
         headers: getAuthHeaders(),
         withCredentials: true,
