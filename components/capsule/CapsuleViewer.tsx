@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Modal, Share, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Alert, Dimensions, Modal, Platform, Share, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -24,6 +24,8 @@ import { HeartBurst, useHeartBurst } from './HeartBurst';
 import { InsightsPanel, InsightsTab } from './InsightsPanel';
 import { OwnerActionBar } from './OwnerActionBar';
 import { ViewerActionBar } from './ViewerActionBar';
+import { scheduleOnRN } from 'react-native-worklets';
+import CapsuleCaption from './CapsuleCaption';
 
 export interface CapsuleViewerProps {
   visible: boolean;
@@ -41,6 +43,9 @@ export interface CapsuleViewerProps {
 }
 
 type SheetState = { kind: 'comments' } | { kind: 'insights'; tab: InsightsTab } | null;
+
+// calm, bounce-free settle after a swipe up (comments / views)
+const SETTLE_UP = { duration: 280, easing: Easing.out(Easing.cubic) };
 
 const startIndex = (g: CapsuleGroup | undefined, ownId: string) => {
   if (!g || g.user.id === ownId) return 0;
@@ -66,16 +71,20 @@ function ViewerContent({
   onCommentAdded,
   onSend,
 }: CapsuleViewerProps) {
-  const { width: W, height: H } = useWindowDimensions();
+  const { width: W, height: winH } = useWindowDimensions();
+  // Android's window height can leave out the system bars; the screen height is the true full height
+  const H = Platform.OS === 'android' ? Math.max(winH, Dimensions.get('screen').height) : winH;
   const insets = useSafeAreaInsets();
+
+  // the whole capsule lives inside the safe area: never under the notch, home indicator or nav bar
   const FINAL = useMemo(
     () => ({
-      x: 8,
-      y: insets.top + 4,
-      w: W - 16,
-      h: H - insets.top - insets.bottom - 8,
+      x: insets.left,
+      y: insets.top,
+      w: W - insets.left - insets.right,
+      h: H - insets.top - insets.bottom,
     }),
-    [W, H, insets.top, insets.bottom],
+    [W, H, insets.left, insets.right, insets.top, insets.bottom],
   );
 
   // ── state ────────────────────────────────────────────────
@@ -85,6 +94,7 @@ function ViewerContent({
   );
   const [sheet, setSheet] = useState<SheetState>(null);
   const [held, setHeld] = useState(false);
+  const [captionOpen, setCaptionOpen] = useState(false); // full caption is open -> pause the timer
   const [loadedId, setLoadedId] = useState<string | null>(null);
   const [restartTick, setRestartTick] = useState(0);
   const lastSheet = useRef<SheetState>(null);
@@ -113,6 +123,14 @@ function ViewerContent({
   const contentOpacity = useSharedValue(1);
   const axis = useSharedValue(0); // 0 undecided · 1 horizontal · 2 vertical
   const heart = useHeartBurst();
+  const holding = useSharedValue(false);
+  const canNext = useSharedValue(false);
+  const canPrev = useSharedValue(false);
+
+  useEffect(() => {
+    canNext.value = hasNextGroup;
+    canPrev.value = hasPrevGroup;
+  }, [hasNextGroup, hasPrevGroup, canNext, canPrev]);
 
   // ── open animation ───────────────────────────────────────
   useEffect(() => {
@@ -236,7 +254,7 @@ function ViewerContent({
   // ── progress timer ───────────────────────────────────────
   const progress = useCapsuleProgress({
     duration: CAPSULE.DURATION_MS,
-    paused: !loaded || !!sheet || held || closing.current,
+    paused: !loaded || !!sheet || held || captionOpen || closing.current,
     resetKey: `${capsule?.id ?? ''}:${restartTick}`,
     onComplete: goNext,
   });
@@ -260,27 +278,48 @@ function ViewerContent({
   }, [group, ci, close]);
 
   // ── gestures ─────────────────────────────────────────────
+  // Always call the latest closures, but keep the callbacks below identity-stable
+  // so the gesture is never rebuilt mid-touch.
+  const latest = useRef({ goNext, goPrev, swipeGroup, close, openSwipeUpSheet, handleDoubleTap });
+  latest.current = { goNext, goPrev, swipeGroup, close, openSwipeUpSheet, handleDoubleTap };
+
+  const onNext = useCallback(() => latest.current.goNext(), []);
+  const onPrev = useCallback(() => latest.current.goPrev(), []);
+  const onSwipe = useCallback((d: 1 | -1) => latest.current.swipeGroup(d), []);
+  const onDismiss = useCallback(() => latest.current.close(), []);
+  const onSwipeUp = useCallback(() => latest.current.openSwipeUpSheet(), []);
+  const onDouble = useCallback((x: number, y: number) => latest.current.handleDoubleTap(x, y), []);
+
   const gesture = useMemo(() => {
-    const tap = Gesture.Tap()
+    const singleTap = Gesture.Tap()
       .maxDuration(250)
-      .onEnd((e, ok) => {
-        if (!ok) return;
-        if (e.x < FINAL.w * 0.3) runOnJS(goPrev)();
-        else runOnJS(goNext)();
+      .onEnd((e, success) => {
+        if (!success) return;
+        if (e.x < FINAL.w * 0.3) scheduleOnRN(onPrev);
+        else scheduleOnRN(onNext);
       });
 
     const doubleTap = Gesture.Tap()
       .numberOfTaps(2)
+      .maxDuration(250)
       .maxDelay(250)
-      .onEnd((e, ok) => {
-        if (ok) runOnJS(handleDoubleTap)(e.x, e.y);
+      .onEnd((e, success) => {
+        if (success) scheduleOnRN(onDouble, e.x, e.y);
       });
 
-    // hold to pause
+    // hold to pause (runs alongside the others; a tap is < 250ms so it never conflicts)
     const hold = Gesture.LongPress()
-      .minDuration(220)
-      .onStart(() => runOnJS(setHeld)(true))
-      .onFinalize(() => runOnJS(setHeld)(false));
+      .minDuration(250)
+      .onStart(() => {
+        holding.value = true;
+        scheduleOnRN(setHeld, true);
+      })
+      .onFinalize(() => {
+        if (holding.value) {          // only if it actually started, so it can't get stuck
+          holding.value = false;
+          scheduleOnRN(setHeld, false);
+        }
+      });
 
     const pan = Gesture.Pan()
       .activeOffsetX([-12, 12])
@@ -294,50 +333,50 @@ function ViewerContent({
         }
         if (axis.value === 1) {
           const blocked =
-            (e.translationX < 0 && !hasNextGroup) || (e.translationX > 0 && !hasPrevGroup);
+            (e.translationX < 0 && !canNext.value) || (e.translationX > 0 && !canPrev.value);
           contentX.value = blocked ? e.translationX * 0.25 : e.translationX;
         } else {
-          dragY.value = e.translationY > 0 ? e.translationY : e.translationY * 0.2;
+          // down: follows the finger (dismiss). up: only a small, capped nudge so it doesn't float
+          dragY.value =
+            e.translationY > 0 ? e.translationY : -Math.min(18, -e.translationY * 0.08);
         }
       })
-      .onEnd((e) => {
+      .onEnd((e, success) => {
+        if (!success) {
+          contentX.value = withSpring(0, { damping: 20, stiffness: 240 });
+          dragY.value = withSpring(0, { damping: 20, stiffness: 240 });
+          return;
+        }
         if (axis.value === 1) {
           const dx = e.translationX;
-          if ((dx < -W * 0.22 || e.velocityX < -700) && hasNextGroup) runOnJS(swipeGroup)(1);
-          else if ((dx > W * 0.22 || e.velocityX > 700) && hasPrevGroup) runOnJS(swipeGroup)(-1);
+          if ((dx < -W * 0.22 || e.velocityX < -700) && canNext.value) scheduleOnRN(onSwipe, 1);
+          else if ((dx > W * 0.22 || e.velocityX > 700) && canPrev.value) scheduleOnRN(onSwipe, -1);
           else contentX.value = withSpring(0, { damping: 20, stiffness: 240 });
         } else if (axis.value === 2) {
           if (e.translationY > 110 || e.velocityY > 900) {
-            runOnJS(close)();
+            scheduleOnRN(onDismiss);
           } else {
-            if (e.translationY < -70 || e.velocityY < -900) runOnJS(openSwipeUpSheet)();
-            dragY.value = withSpring(0, { damping: 20, stiffness: 240 });
+            if (e.translationY < -70 || e.velocityY < -900) scheduleOnRN(onSwipeUp);
+            // swipe up settles calmly (no bounce); a short pull down still springs back
+            dragY.value =
+              e.translationY < 0
+                ? withTiming(0, SETTLE_UP)
+                : withSpring(0, { damping: 20, stiffness: 240 });
           }
         }
+      })
+      .onFinalize(() => {
         axis.value = 0;
       });
 
-    return Gesture.Race(pan, hold, Gesture.Exclusive(doubleTap, tap));
-  }, [
-    FINAL.w,
-    W,
-    goNext,
-    goPrev,
-    handleDoubleTap,
-    hasNextGroup,
-    hasPrevGroup,
-    swipeGroup,
-    close,
-    openSwipeUpSheet,
-    axis,
-    contentX,
-    dragY,
-  ]);
+    return Gesture.Simultaneous(hold, Gesture.Race(pan, Gesture.Exclusive(doubleTap, singleTap)));
+  }, [FINAL.w, W, axis, contentX, dragY, holding, canNext, canPrev, onNext, onPrev, onSwipe, onDismiss, onSwipeUp, onDouble]);
 
   // ── animated styles ──────────────────────────────────────
   const rectStyle = useAnimatedStyle(() => {
     const p = open.value;
     return {
+      opacity: interpolate(p, [0, 0.12], [0, 1], Extrapolation.CLAMP),
       left: interpolate(p, [0, 1], [ox.value, FINAL.x]),
       top: interpolate(p, [0, 1], [oy.value, FINAL.y]),
       width: interpolate(p, [0, 1], [ow.value, FINAL.w]),
@@ -392,7 +431,14 @@ function ViewerContent({
   const shown = sheet ?? lastSheet.current;
 
   return (
-    <Modal transparent statusBarTranslucent animationType="none" visible onRequestClose={close}>
+    <Modal
+      transparent
+      statusBarTranslucent
+      navigationBarTranslucent
+      animationType="none"
+      visible
+      onRequestClose={close}
+    >
       <GestureHandlerRootView style={{ flex: 1 }}>
         <Animated.View
           pointerEvents="none"
@@ -430,7 +476,7 @@ function ViewerContent({
                 </View>
               </GestureDetector>
 
-              {/* glass panels (top + bottom) */}
+              {/* glass panels (top + bottom): flush with the card edges, safe area is handled by the card itself */}
               <Animated.View
                 pointerEvents="box-none"
                 style={[StyleSheet.absoluteFill, { justifyContent: 'space-between' }, chromeStyle]}
@@ -444,24 +490,33 @@ function ViewerContent({
                   isOwn={isOwn}
                   onClose={close}
                 />
-                {isOwn ? (
-                  <OwnerActionBar
-                    capsule={capsule}
-                    onViews={() => setSheet({ kind: 'insights', tab: 'views' })}
-                    onLikes={() => setSheet({ kind: 'insights', tab: 'likes' })}
-                    onComments={() => setSheet({ kind: 'insights', tab: 'comments' })}
-                    onSend={handleSend}
-                    onDelete={handleDelete}
+
+                {/* caption sits directly above the action bar and grows upward when expanded */}
+                <View pointerEvents="box-none">
+                  <CapsuleCaption
+                    key={capsule.id}
+                    caption={capsule.caption}
+                    onExpandChange={setCaptionOpen}
                   />
-                ) : (
-                  <ViewerActionBar
-                    capsule={capsule}
-                    onLike={() => onToggleLike(capsule.id)}
-                    onComment={() => setSheet({ kind: 'comments' })}
-                    onSave={() => onToggleSave(capsule.id)}
-                    onSend={handleSend}
-                  />
-                )}
+                  {isOwn ? (
+                    <OwnerActionBar
+                      capsule={capsule}
+                      onViews={() => setSheet({ kind: 'insights', tab: 'views' })}
+                      onLikes={() => setSheet({ kind: 'insights', tab: 'likes' })}
+                      onComments={() => setSheet({ kind: 'insights', tab: 'comments' })}
+                      onSend={handleSend}
+                      onDelete={handleDelete}
+                    />
+                  ) : (
+                    <ViewerActionBar
+                      capsule={capsule}
+                      onLike={() => onToggleLike(capsule.id)}
+                      onComment={() => setSheet({ kind: 'comments' })}
+                      onSave={() => onToggleSave(capsule.id)}
+                      onSend={handleSend}
+                    />
+                  )}
+                </View>
               </Animated.View>
             </Animated.View>
           ) : null}
@@ -475,6 +530,7 @@ function ViewerContent({
             {capsule && shown?.kind === 'comments' && (
               <CommentsPanel
                 capsuleId={capsule.id}
+                initialComments={capsule.comments}
                 onAdded={() => onCommentAdded(capsule.id)}
               />
             )}

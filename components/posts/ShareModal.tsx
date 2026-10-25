@@ -1,502 +1,188 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import Ionicons from '@expo/vector-icons/Ionicons'
+import { BlurView } from 'expo-blur'
+import * as Haptics from 'expo-haptics'
+import React, { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import {
-    ActivityIndicator,
-    FlatList,
-    Image,
-    KeyboardAvoidingView,
-    Modal,
-    Platform,
-    Pressable,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
-} from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-// TODO: adjust this path to wherever your NeoView / GlassPanel / COLORS live
-import { COLORS, GlassPanel, NeoView } from '@/components/ui/neo';
+    ActivityIndicator, FlatList, Image, KeyboardAvoidingView, Modal,
+    Platform, Pressable, StyleSheet, Text, TextInput, View,
+} from 'react-native'
+import Animated, { FadeIn, FadeOut, SlideInDown, SlideOutDown, ZoomIn } from 'react-native-reanimated'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { sharePostToContact } from '../services/chat/sharePost'
+import { COLORS } from '../ui/neo'
 
-/* -------------------------------------------------------------------------- */
-/*  Config – fill this in                                                      */
-/* -------------------------------------------------------------------------- */
+// Assumed shape. `id` must be the same id you use as contact._id in chat.
+export type ShareTarget = { id: string; username: string; profilePic?: string }
 
-// TODO: put your "send post as message" endpoint here
-const SHARE_POST_URI = '';
-
-/* -------------------------------------------------------------------------- */
-/*  Types                                                                      */
-/* -------------------------------------------------------------------------- */
-
-export type ShareTarget = {
-    id: string;
-    name: string;
-    username?: string;
-    avatar?: string; // image url, optional
-    memberCount?: number; // for orbitals
-};
-
-export type SharePayload = {
-    postId: string;
-    friendIds: string[];
-    orbitalIds: string[];
-    message?: string;
-};
-
-type TabKey = 'friends' | 'orbitals';
-
-type ShareModalProps = {
-    visible: boolean;
-    postId: string | null;
-    friends: ShareTarget[];
-    orbitals: ShareTarget[];
-    onClose: () => void;
-    /** Optional override. If omitted, the default sendPostAsMessage() is used. */
-    onSend?: (payload: SharePayload) => Promise<void> | void;
-};
-
-/* -------------------------------------------------------------------------- */
-/*  API call (URI intentionally empty)                                         */
-/* -------------------------------------------------------------------------- */
-
-export async function sendPostAsMessage(payload: SharePayload): Promise<void> {
-    if (!SHARE_POST_URI) {
-        console.warn('[ShareModal] SHARE_POST_URI is empty – nothing was sent.', payload);
-        return;
-    }
-    const res = await fetch(SHARE_POST_URI, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            // TODO: add auth header if needed
-            // Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(payload),
-    });
-    if (!res.ok) {
-        throw new Error(`Share failed with status ${res.status}`);
-    }
+type Props = {
+    visible: boolean
+    postId: string | null
+    friends: ShareTarget[]
+    orbitals?: ShareTarget[] // accepted so the home screen doesn't change; not wired yet
+    onClose: () => void
 }
 
-/* -------------------------------------------------------------------------- */
-/*  Small pieces                                                               */
-/* -------------------------------------------------------------------------- */
-
-const keyOf = (tab: TabKey, id: string) => `${tab}:${id}`;
-
-function Avatar({ target, size = 44 }: { target: ShareTarget; size?: number }) {
-    if (target.avatar) {
-        return (
-            <Image
-                source={{ uri: target.avatar }}
-                style={{ width: size, height: size, borderRadius: size / 2 }}
-            />
-        );
-    }
+const Row = memo(function Row({ item, on, onToggle }: { item: ShareTarget; on: boolean; onToggle: (id: string) => void }) {
     return (
-        <View
-            style={{
-                width: size,
-                height: size,
-                borderRadius: size / 2,
-                backgroundColor: 'rgba(255,255,255,0.08)',
-                borderWidth: 1,
-                borderColor: COLORS.glassBorder,
-                alignItems: 'center',
-                justifyContent: 'center',
-            }}
-        >
-            <Text style={{ color: COLORS.text, fontWeight: '700', fontSize: size * 0.4 }}>
-                {target.name.trim().charAt(0).toUpperCase() || '?'}
-            </Text>
-        </View>
-    );
-}
-
-function TabBar({
-    active,
-    onChange,
-    counts,
-}: {
-    active: TabKey;
-    onChange: (t: TabKey) => void;
-    counts: Record<TabKey, number>;
-}) {
-    const tabs: { key: TabKey; label: string }[] = [
-        { key: 'friends', label: 'Friends' },
-        { key: 'orbitals', label: 'Orbitals' },
-    ];
-
-    return (
-        <NeoView
-            pressed
-            radius={18}
-            style={{ height: 54 }}
-            contentStyle={{ flexDirection: 'row', padding: 5, alignItems: 'stretch' }}
-        >
-            {tabs.map((t) => {
-                const isActive = active === t.key;
-                const content = (
-                    <View style={styles.tabInner}>
-                        <Text
-                            style={{
-                                color: isActive ? COLORS.text : COLORS.muted,
-                                fontWeight: '700',
-                                fontSize: 14,
-                            }}
-                        >
-                            {counts[t.key]}
-                        </Text>
-                        <Text
-                            style={{
-                                color: isActive ? COLORS.text : COLORS.muted,
-                                fontWeight: isActive ? '700' : '500',
-                                fontSize: 14,
-                                marginLeft: 6,
-                            }}
-                        >
-                            {t.label}
-                        </Text>
-                    </View>
-                );
-
-                return (
-                    <TouchableOpacity
-                        key={t.key}
-                        activeOpacity={0.8}
-                        onPress={() => onChange(t.key)}
-                        style={{ flex: 1 }}
-                    >
-                        {isActive ? (
-                            <NeoView radius={14} style={{ flex: 1 }}>
-                                {content}
-                            </NeoView>
-                        ) : (
-                            <View style={{ flex: 1 }}>{content}</View>
-                        )}
-                    </TouchableOpacity>
-                );
-            })}
-        </NeoView>
-    );
-}
-
-function TargetRow({
-    target,
-    selected,
-    isOrbital,
-    onToggle,
-}: {
-    target: ShareTarget;
-    selected: boolean;
-    isOrbital: boolean;
-    onToggle: () => void;
-}) {
-    const subtitle = isOrbital
-        ? target.memberCount != null
-            ? `${target.memberCount} members`
-            : undefined
-        : target.username
-            ? `@${target.username}`
-            : undefined;
-
-    return (
-        <TouchableOpacity activeOpacity={0.85} onPress={onToggle} style={{ marginBottom: 10 }}>
-            <GlassPanel
-                radius={16}
-                style={selected ? { borderColor: 'rgba(47,174,255,0.55)' } : undefined}
-            >
-                <View style={styles.row}>
-                    <Avatar target={target} />
-                    <View style={{ flex: 1, marginLeft: 12 }}>
-                        <Text numberOfLines={1} style={styles.rowTitle}>
-                            {target.name}
-                        </Text>
-                        {!!subtitle && (
-                            <Text numberOfLines={1} style={styles.rowSub}>
-                                {subtitle}
-                            </Text>
-                        )}
-                    </View>
-                    <NeoView
-                        radius={9}
-                        pressed={!selected}
-                        accent={selected}
-                        style={{ width: 28, height: 28 }}
-                    >
-                        {selected && <Ionicons name="checkmark" size={16} color="#fff" />}
-                    </NeoView>
+        <Pressable onPress={() => onToggle(item.id)} className="flex-row items-center px-4 py-2.5 active:bg-white/5">
+            {item.profilePic ? (
+                <Image source={{ uri: item.profilePic }} className="h-11 w-11 rounded-full" />
+            ) : (
+                <View className="h-11 w-11 items-center justify-center rounded-full border border-white/35 bg-white/15">
+                    <Text className="text-base font-bold text-white">{item.username?.charAt(0).toUpperCase()}</Text>
                 </View>
-            </GlassPanel>
-        </TouchableOpacity>
-    );
-}
+            )}
+            <Text numberOfLines={1} className="ml-3 flex-1 text-[15px] font-semibold text-white">{item.username}</Text>
+            <View className={`h-6 w-6 items-center justify-center rounded-full border ${on ? 'border-white bg-white' : 'border-white/40'}`}>
+                {on && (
+                    <Animated.View entering={ZoomIn.duration(120)}>
+                        <Ionicons name="checkmark" size={16} color="#0a0c12" />
+                    </Animated.View>
+                )}
+            </View>
+        </Pressable>
+    )
+})
 
-/* -------------------------------------------------------------------------- */
-/*  Modal                                                                      */
-/* -------------------------------------------------------------------------- */
+export default function ShareModal({ visible, postId, friends, onClose }: Props) {
+    const insets = useSafeAreaInsets()
 
-export default function ShareModal({
-    visible,
-    postId,
-    friends,
-    orbitals,
-    onClose,
-    onSend,
-}: ShareModalProps) {
-    const [tab, setTab] = useState<TabKey>('friends');
-    const [selected, setSelected] = useState<string[]>([]);
-    const [query, setQuery] = useState('');
-    const [message, setMessage] = useState('');
-    const [sending, setSending] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-
-    // reset every time the modal is opened
+    // Keep the Modal mounted briefly after `visible` flips so the exit animation can play.
+    const [mounted, setMounted] = useState(visible)
     useEffect(() => {
         if (visible) {
-            setTab('friends');
-            setSelected([]);
-            setQuery('');
-            setMessage('');
-            setError(null);
-            setSending(false);
+            setMounted(true)
+            return
         }
-    }, [visible]);
+        const t = setTimeout(() => setMounted(false), 260)
+        return () => clearTimeout(t)
+    }, [visible])
 
-    const data = tab === 'friends' ? friends : orbitals;
+    const [query, setQuery] = useState('')
+    const [selected, setSelected] = useState<Set<string>>(new Set())
+    const [sending, setSending] = useState(false)
+    const [error, setError] = useState<string | null>(null)
+
+    useEffect(() => {
+        if (!visible) return
+        setSelected(new Set())
+        setQuery('')
+        setError(null)
+    }, [visible])
 
     const filtered = useMemo(() => {
-        const q = query.trim().toLowerCase();
-        if (!q) return data;
-        return data.filter(
-            (t) => t.name.toLowerCase().includes(q) || t.username?.toLowerCase().includes(q),
-        );
-    }, [data, query]);
+        const q = query.trim().toLowerCase()
+        return q ? friends.filter((f) => f.username?.toLowerCase().includes(q)) : friends
+    }, [friends, query])
 
-    const toggle = useCallback((key: string) => {
-        setSelected((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
-    }, []);
+    const toggle = useCallback((id: string) => {
+        Haptics.selectionAsync()
+        setSelected((prev) => {
+            const next = new Set(prev)
+            next.has(id) ? next.delete(id) : next.add(id)
+            return next
+        })
+    }, [])
 
-    const selectedCount = selected.length;
+    const send = useCallback(async () => {
+        if (!postId || selected.size === 0 || sending) return
+        setSending(true)
+        setError(null)
 
-    const handleSend = async () => {
-        if (!postId || selectedCount === 0 || sending) return;
+        const ids = Array.from(selected)
+        const results = await Promise.allSettled(ids.map((id) => sharePostToContact(id, postId)))
+        const failed = ids.filter((_, i) => results[i].status === 'rejected')
+        setSending(false)
 
-        const payload: SharePayload = {
-            postId,
-            friendIds: selected.filter((k) => k.startsWith('friends:')).map((k) => k.slice(8)),
-            orbitalIds: selected.filter((k) => k.startsWith('orbitals:')).map((k) => k.slice(9)),
-            message: message.trim() || undefined,
-        };
-
-        try {
-            setSending(true);
-            setError(null);
-            await (onSend ?? sendPostAsMessage)(payload);
-            onClose();
-        } catch (e) {
-            setError('Could not send. Please try again.');
-        } finally {
-            setSending(false);
+        if (failed.length === 0) {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+            onClose()
+            return
         }
-    };
+        setSelected(new Set(failed))
+        setError(
+            failed.length === ids.length
+                ? 'Could not send. Try again.'
+                : `Couldn't send to ${failed.length} of ${ids.length}. Try again.`
+        )
+    }, [postId, selected, sending, onClose])
+
+    const count = selected.size
+    const disabled = count === 0 || sending
 
     return (
-        <Modal
-            visible={visible}
-            transparent
-            animationType="slide"
-            statusBarTranslucent
-            onRequestClose={onClose}
-        >
-            <View style={styles.root}>
-                <Pressable style={styles.backdrop} onPress={onClose} />
+        <Modal visible={mounted} transparent animationType="none" statusBarTranslucent onRequestClose={onClose}>
+            {visible && (
+                <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(200)} className="absolute inset-0 bg-black/50">
+                    <Pressable className="flex-1" onPress={onClose} accessibilityLabel="Close share" />
+                </Animated.View>
+            )}
 
-                <KeyboardAvoidingView
-                    behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-                    style={styles.sheetWrap}
-                >
-                    <GlassPanel
-                        blur
-                        radius={28}
-                        style={{ backgroundColor: 'rgba(18,21,27,0.92)', maxHeight: '100%' }}
+            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} className="flex-1 justify-end" pointerEvents="box-none">
+                {visible && (
+                    <Animated.View
+                        entering={SlideInDown.springify().damping(20).mass(0.6)}
+                        exiting={SlideOutDown.duration(220)}
+                        className="overflow-hidden rounded-t-[32px] border border-b-0 border-white/15"
+                        style={{ height: '70%' }}
                     >
-                        <View style={styles.sheet}>
-                            {/* grabber + header */}
-                            <View style={styles.grabber} />
-                            <View style={styles.header}>
-                                <Text style={styles.title}>Share post</Text>
-                                <TouchableOpacity onPress={onClose} hitSlop={10}>
-                                    <NeoView radius={14} style={{ width: 32, height: 32 }}>
-                                        <Ionicons name="close" size={16} color={COLORS.text} />
-                                    </NeoView>
-                                </TouchableOpacity>
-                            </View>
+                        <BlurView intensity={60} tint="dark" style={StyleSheet.absoluteFill} />
+                        <View pointerEvents="none" className="absolute inset-0 bg-[rgba(10,12,18,0.9)]" />
 
-                            {/* tab bar */}
-                            <TabBar
-                                active={tab}
-                                onChange={setTab}
-                                counts={{ friends: friends.length, orbitals: orbitals.length }}
-                            />
-
-                            {/* search */}
-                            <View style={{ marginTop: 14 }}>
-                                <NeoView
-                                    pressed
-                                    radius={14}
-                                    style={{ height: 44 }}
-                                    contentStyle={{
-                                        flexDirection: 'row',
-                                        paddingHorizontal: 12,
-                                        alignItems: 'center',
-                                        justifyContent: 'flex-start',
-                                    }}
-                                >
-                                    <Ionicons name="search" size={16} color={COLORS.muted} />
-                                    <TextInput
-                                        value={query}
-                                        onChangeText={setQuery}
-                                        placeholder={`Search ${tab}`}
-                                        placeholderTextColor={COLORS.muted}
-                                        style={styles.input}
-                                        autoCorrect={false}
-                                    />
-                                    {!!query && (
-                                        <TouchableOpacity onPress={() => setQuery('')} hitSlop={8}>
-                                            <Ionicons name="close-circle" size={16} color={COLORS.muted} />
-                                        </TouchableOpacity>
-                                    )}
-                                </NeoView>
-                            </View>
-
-                            {/* list */}
-                            <FlatList
-                                data={filtered}
-                                keyExtractor={(item) => keyOf(tab, item.id)}
-                                style={{ marginTop: 14, flexGrow: 0, maxHeight: 360 }}
-                                showsVerticalScrollIndicator={false}
-                                keyboardShouldPersistTaps="handled"
-                                renderItem={({ item }) => {
-                                    const key = keyOf(tab, item.id);
-                                    return (
-                                        <TargetRow
-                                            target={item}
-                                            isOrbital={tab === 'orbitals'}
-                                            selected={selected.includes(key)}
-                                            onToggle={() => toggle(key)}
-                                        />
-                                    );
-                                }}
-                                ListEmptyComponent={
-                                    <View style={styles.empty}>
-                                        <Ionicons
-                                            name={tab === 'friends' ? 'people-outline' : 'planet-outline'}
-                                            size={28}
-                                            color={COLORS.muted}
-                                        />
-                                        <Text style={styles.emptyText}>
-                                            {query ? 'No matches found' : `No ${tab} yet`}
-                                        </Text>
-                                    </View>
-                                }
-                            />
-
-                            {/* optional message */}
-                            {selectedCount > 0 && (
-                                <View style={{ marginTop: 6 }}>
-                                    <NeoView
-                                        pressed
-                                        radius={14}
-                                        style={{ minHeight: 44 }}
-                                        contentStyle={{
-                                            paddingHorizontal: 12,
-                                            alignItems: 'stretch',
-                                            justifyContent: 'center',
-                                        }}
-                                    >
-                                        <TextInput
-                                            value={message}
-                                            onChangeText={setMessage}
-                                            placeholder="Add a message (optional)"
-                                            placeholderTextColor={COLORS.muted}
-                                            style={[styles.input, { marginLeft: 0 }]}
-                                        />
-                                    </NeoView>
-                                </View>
-                            )}
-
-                            {!!error && <Text style={styles.error}>{error}</Text>}
-
-                            {/* send button */}
-                            <TouchableOpacity
-                                activeOpacity={0.85}
-                                disabled={selectedCount === 0 || sending}
-                                onPress={handleSend}
-                                style={{ marginTop: 14, opacity: selectedCount === 0 ? 0.5 : 1 }}
-                            >
-                                <NeoView
-                                    radius={16}
-                                    accent={selectedCount > 0}
-                                    style={{ height: 50 }}
-                                    contentStyle={{ flexDirection: 'row' }}
-                                >
-                                    {sending ? (
-                                        <ActivityIndicator color="#fff" />
-                                    ) : (
-                                        <>
-                                            <Ionicons name="paper-plane" size={16} color="#fff" />
-                                            <Text style={styles.sendText}>
-                                                {selectedCount > 0 ? `Send (${selectedCount})` : 'Select to send'}
-                                            </Text>
-                                        </>
-                                    )}
-                                </NeoView>
-                            </TouchableOpacity>
+                        <View className="items-center pb-1.5 pt-2.5">
+                            <View className="h-[5px] w-11 rounded-full bg-white/20" />
                         </View>
-                    </GlassPanel>
-                </KeyboardAvoidingView>
-            </View>
+
+                        <View className="flex-row items-center px-4 pb-3 pt-1.5">
+                            <Text className="flex-1 text-xl font-extrabold text-white">Send to</Text>
+                            <Pressable onPress={onClose} hitSlop={10} accessibilityLabel="Close share">
+                                <Ionicons name="close" size={24} color="#fff" />
+                            </Pressable>
+                        </View>
+
+                        <View className="mx-4 mb-2 flex-row items-center rounded-2xl bg-white/10 px-3">
+                            <Ionicons name="search" size={16} color={COLORS.muted} />
+                            <TextInput
+                                value={query}
+                                onChangeText={setQuery}
+                                placeholder="Search people"
+                                placeholderTextColor={COLORS.muted}
+                                autoCapitalize="none"
+                                autoCorrect={false}
+                                className="ml-2 flex-1 py-2.5 text-[14px] text-white"
+                            />
+                        </View>
+
+                        <FlatList
+                            data={filtered}
+                            extraData={selected}
+                            keyExtractor={(f) => f.id}
+                            renderItem={({ item }) => <Row item={item} on={selected.has(item.id)} onToggle={toggle} />}
+                            keyboardShouldPersistTaps="handled"
+                            showsVerticalScrollIndicator={false}
+                            className="flex-1"
+                            ListEmptyComponent={<Text className="mt-10 text-center text-sm text-white/60">No people found</Text>}
+                        />
+
+                        <View className="px-4 pt-2" style={{ paddingBottom: insets.bottom + 12 }}>
+                            {error ? <Text className="mb-2 text-center text-[13px] text-red-400">{error}</Text> : null}
+                            <Pressable
+                                onPress={send}
+                                disabled={disabled}
+                                className={`items-center rounded-2xl py-3 ${disabled ? 'bg-white/10' : 'bg-white active:opacity-80'}`}
+                            >
+                                {sending ? (
+                                    <ActivityIndicator color="#0a0c12" />
+                                ) : (
+                                    <Text className={`text-[15px] font-bold ${count === 0 ? 'text-white/50' : 'text-[#0a0c12]'}`}>
+                                        {count > 0 ? `Share (${count})` : 'Share'}
+                                    </Text>
+                                )}
+                            </Pressable>
+                        </View>
+                    </Animated.View>
+                )}
+            </KeyboardAvoidingView>
         </Modal>
-    );
+    )
 }
-
-/* -------------------------------------------------------------------------- */
-/*  Styles                                                                     */
-/* -------------------------------------------------------------------------- */
-
-const styles = StyleSheet.create({
-    root: { flex: 1, justifyContent: 'flex-end' },
-    backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.6)' },
-    sheetWrap: { paddingHorizontal: 8, paddingBottom: Platform.OS === 'ios' ? 24 : 12 },
-    sheet: { padding: 16, paddingTop: 10 },
-    grabber: {
-        alignSelf: 'center',
-        width: 40,
-        height: 4,
-        borderRadius: 2,
-        backgroundColor: 'rgba(255,255,255,0.18)',
-        marginBottom: 12,
-    },
-    header: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        marginBottom: 14,
-    },
-    title: { color: COLORS.text, fontSize: 18, fontWeight: '700' },
-    tabInner: {
-        flex: 1,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    row: { flexDirection: 'row', alignItems: 'center', padding: 12 },
-    rowTitle: { color: COLORS.text, fontSize: 15, fontWeight: '600' },
-    rowSub: { color: COLORS.muted, fontSize: 12, marginTop: 2 },
-    input: { flex: 1, color: COLORS.text, fontSize: 14, marginLeft: 8, paddingVertical: 0 },
-    empty: { alignItems: 'center', paddingVertical: 36, gap: 8 },
-    emptyText: { color: COLORS.muted, fontSize: 13 },
-    error: { color: '#FF6B6B', fontSize: 12, marginTop: 10, textAlign: 'center' },
-    sendText: { color: '#fff', fontWeight: '700', fontSize: 15, marginLeft: 8 },
-});

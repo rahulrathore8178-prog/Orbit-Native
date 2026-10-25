@@ -1,41 +1,80 @@
-import "@/global.css";
-import { store } from '@/redux/store';
-import { Slot, Stack } from "expo-router";
-import { useEffect, useState } from "react";
-import { Provider } from 'react-redux';
+import { useEffect } from 'react';
+import { View } from 'react-native';
+import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import OrbitLoader from '@/components/ui/OrbitLoader'; // adjust path
-import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { Provider, useDispatch, useSelector } from 'react-redux';
+
+import { store as reduxStore } from '@/redux/store'; // adjust to your store path
+import { bootstrapAuth, signOut } from '@/redux/slice/authSlice';
+import { setupAxios, setUnauthorizedHandler } from '@/lib/auth/setupAxios';
+import OrbitLoader from '@/components/ui/OrbitLoader'; // adjust to your loader path
+import { KeyboardProvider } from 'react-native-keyboard-controller';
 
 SplashScreen.preventAutoHideAsync();
-export default function RootLayout() {
-  const [appReady, setAppReady] = useState(false);
+setupAxios(); // interceptors installed once, before any screen makes a request
 
-useEffect(() => {
-  (async () => {
-    try {
-      await AsyncStorage.getItem("token");
-    } finally {
-      setAppReady(true);
-      await SplashScreen.hideAsync();
-    }
-  })();
-}, []);
+function AuthGate() {
+  // Swap `any` for your typed hooks (AppDispatch / RootState) if you have them.
+  const dispatch = useDispatch<any>();
+  const status = useSelector((s: any) => s.auth.status);
 
-  if (!appReady) {
-    return <OrbitLoader />;
-  }
-  
+  // 1) Decide signedIn / signedOut once on start.
+  useEffect(() => {
+    dispatch(bootstrapAuth());
+  }, [dispatch]);
+
+  // Keep the native splash up until we know the auth state.
+  useEffect(() => {
+    if (status !== 'loading') SplashScreen.hideAsync();
+  }, [status]);
+
+  // 2) Any 401 from your API while signed in = session expired -> log out cleanly.
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      if (reduxStore.getState().auth.status === 'signedIn') dispatch(signOut());
+    });
+    return () => setUnauthorizedHandler(null);
+  }, [dispatch]);
+
+  const isSignedIn = status === 'signedIn';
+
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <Provider store={store}>
-        <Stack screenOptions={{ headerShown: false }}>
+    <>
+      {/* The navigator is ALWAYS mounted. In SDK 58 the router builds its state from the
+          launch URL ('/'), so it needs a navigator to exist on the first render. */}
+      <Stack screenOptions={{ headerShown: false }}>
+        {/* Signed-in only. Signed-out users who hit these are sent to '/' (the index screen). */}
+        <Stack.Protected guard={isSignedIn} redirectTo="/">
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="orbital" options={{ animation: 'slide_from_right' }} />
-        </Stack>
-        <OrbitLoader visible={!appReady} />
+        </Stack.Protected>
+
+        {/* Signed-out only. Signed-in users who land on '/' are sent to home. */}
+        <Stack.Protected guard={!isSignedIn} redirectTo="/home">
+          <Stack.Screen name="index" />
+          <Stack.Screen name="signup" />
+        </Stack.Protected>
+      </Stack>
+
+      {/* Loader sits on top instead of replacing the navigator. */}
+      {status === 'loading' ? (
+        <View className="absolute inset-0 bg-black">
+          <OrbitLoader />
+        </View>
+      ) : null}
+    </>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <Provider store={reduxStore}>
+        <KeyboardProvider statusBarTranslucent navigationBarTranslucent>
+          <AuthGate />
+        </KeyboardProvider>
       </Provider>
     </GestureHandlerRootView>
   );
-};
+}

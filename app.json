@@ -7,16 +7,14 @@
     "icon": "./assets/images/Orbit-Logo.png",
     "scheme": "orbitnative",
     "userInterfaceStyle": "automatic",
-    // "newArchEnabled": true,
     "android": {
       "package": "com.orb8.app",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#000000",
         "foregroundImage": "./assets/images/Orbit-Logo.png",
         "backgroundImage": "./assets/images/Orbit-Logo.png",
         "monochromeImage": "./assets/images/Orbit-Logo.png"
       },
-      // "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "android.permission.ACCESS_COARSE_LOCATION",
@@ -49,7 +47,7 @@
           "image": "./assets/images/Orbit-Logo.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff",
+          "backgroundColor": "#000000",
           "dark": {
             "backgroundColor": "#000000"
           }
@@ -77,11 +75,14 @@
         {
           "microphonePermission": "Allow $(PRODUCT_NAME) to record voice notes."
         }
-      ]
+      ],
+      "expo-secure-store",
+      "@react-native-google-signin/google-signin",
+      "expo-image"
     ],
     "experiments": {
       "typedRoutes": true,
-      "reactCompiler": false,
+      "reactCompiler": false
     },
     "extra": {
       "router": {},

@@ -1,10 +1,8 @@
 import { router, useNavigation } from 'expo-router';
 import { ChevronLeft } from 'lucide-react-native';
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
     ActivityIndicator,
-    Animated,
-    Easing,
     FlatList,
     LayoutChangeEvent,
     Pressable,
@@ -14,14 +12,24 @@ import {
     View,
     ViewStyle,
 } from 'react-native';
-import Reanimated, { interpolate, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import Reanimated, {
+    Easing,
+    SharedValue,
+    interpolate,
+    useAnimatedStyle,
+    useSharedValue,
+    withTiming,
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, GlassPanel, NeoView } from '../ui/neo';
 import OrbitIcon from './orbitIcon';
 import { MyOrbital, Orbital, useOrbitals } from './orbitalData';
 import OrbitalCard from './orbitals';
+import { SwipePager, useSwipeTabs, useTabIndicatorStyle, useTabLabelStyle } from '@/hooks/global/UseSwipeTabs';
+import CreateOrbital from './CreateOrbital';
 
-const TABS = ['Joined orbitals', 'My orbitals'] as const;
+// Order matters: Joined (0), All (1), Mine (2)
+const TABS = ['Joined', 'All', 'Mine'] as const;
 const PAD = 6;
 
 type Item = Orbital | MyOrbital;
@@ -34,36 +42,14 @@ function TabLabel({
     progress,
 }: {
     label: string;
-    tabIndex: 0 | 1;
-    progress: Animated.Value;
+    tabIndex: number;
+    progress: SharedValue<number>;
 }) {
-    const active = progress.interpolate({
-        inputRange: [0, 1],
-        outputRange: tabIndex === 0 ? [1, 0] : [0, 1],
-    });
-    const inactive = progress.interpolate({
-        inputRange: [0, 1],
-        outputRange: tabIndex === 0 ? [0, 1] : [1, 0],
-    });
+    const style = useTabLabelStyle(progress, tabIndex, COLORS.text, COLORS.muted);
 
     return (
         <View className="flex-1 items-center justify-center">
-            <Animated.Text
-                style={{ color: COLORS.muted, fontSize: 14, fontWeight: '700', opacity: inactive }}
-            >
-                {label}
-            </Animated.Text>
-            <Animated.Text
-                style={{
-                    position: 'absolute',
-                    color: COLORS.text,
-                    fontSize: 14,
-                    fontWeight: '800',
-                    opacity: active,
-                }}
-            >
-                {label}
-            </Animated.Text>
+            <Reanimated.Text style={[{ fontSize: 14, fontWeight: '800' }, style]}>{label}</Reanimated.Text>
         </View>
     );
 }
@@ -74,34 +60,26 @@ function SegmentedTabs({
     onChange,
 }: {
     index: number;
-    progress: Animated.Value;
+    progress: SharedValue<number>;
     onChange: (i: number) => void;
 }) {
     const [w, setW] = useState(0);
-    const tabW = w > 0 ? (w - PAD * 2) / 2 : 0;
-
-    const translateX = progress.interpolate({
-        inputRange: [0, 1],
-        outputRange: [0, tabW],
-    });
+    const tabW = w > 0 ? (w - PAD * 2) / TABS.length : 0;
+    const pillStyle = useTabIndicatorStyle(progress, tabW);
 
     return (
         <GlassPanel radius={22} style={{ height: 58 }}>
             <View style={{ flex: 1 }} onLayout={(e: LayoutChangeEvent) => setW(e.nativeEvent.layout.width)}>
                 {tabW > 0 && (
-                    <Animated.View
+                    <Reanimated.View
                         pointerEvents="none"
-                        style={{
-                            position: 'absolute',
-                            left: PAD,
-                            top: PAD,
-                            bottom: PAD,
-                            width: tabW,
-                            transform: [{ translateX }],
-                        }}
+                        style={[
+                            { position: 'absolute', left: PAD, top: PAD, bottom: PAD, width: tabW },
+                            pillStyle,
+                        ]}
                     >
                         <NeoView radius={16} style={{ flex: 1 }} />
-                    </Animated.View>
+                    </Reanimated.View>
                 )}
 
                 <View style={{ flex: 1, flexDirection: 'row', padding: PAD }}>
@@ -113,7 +91,7 @@ function SegmentedTabs({
                             accessibilityRole="tab"
                             accessibilityState={{ selected: index === i }}
                         >
-                            <TabLabel label={label} tabIndex={i as 0 | 1} progress={progress} />
+                            <TabLabel label={label} tabIndex={i} progress={progress} />
                         </Pressable>
                     ))}
                 </View>
@@ -135,7 +113,6 @@ function OrbitalList({
     bottomPad,
     onRefresh,
     onRetry,
-    // onPressItem,
 }: {
     data: Item[];
     loading: boolean;
@@ -145,35 +122,22 @@ function OrbitalList({
     bottomPad: number;
     onRefresh: () => void;
     onRetry: () => void;
-    // onPressItem: (item: Item) => void;
 }) {
-
     // hooks first, before any early return
-    const handlePressItem = useCallback(
-        (item: Item) => {
-            router.push({
-                pathname: '/orbital/[id]',
-                params: { id: item._id, data: JSON.stringify(item) },
-            });
-        },
-        [router]
-    );
+    const handlePressItem = useCallback((item: Item) => {
+        router.push({
+            pathname: '/orbital/[id]',
+            params: { id: item._id, data: JSON.stringify(item) },
+        });
+    }, []);
+
     if (loading && data.length === 0) {
         return (
             <View className="flex-1 items-center justify-center">
                 <ActivityIndicator color={COLORS.accent} />
             </View>
         );
-    };
-
-    console.log('Rendering OrbitalList with data:', data, 'loading:', loading, 'error:', error, 'refreshing:', refreshing);
-
-    // const handlePressItem = useCallback(
-    //     (item: Item) => {
-    //         // router.push('/components/orbital/orbitals');
-    //     },
-    //     [router]
-    // );
+    }
 
     if (error && data.length === 0) {
         return (
@@ -194,7 +158,7 @@ function OrbitalList({
                 </GlassPanel>
             </View>
         );
-    };
+    }
 
     return (
         <FlatList
@@ -203,6 +167,7 @@ function OrbitalList({
             renderItem={({ item }) => <OrbitalCard orbital={item} onPress={handlePressItem} />}
             ItemSeparatorComponent={Separator}
             showsVerticalScrollIndicator={false}
+            nestedScrollEnabled
             contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 4, paddingBottom: bottomPad }}
             refreshControl={
                 <RefreshControl
@@ -233,20 +198,26 @@ interface BackButtonProps {
 
 /* ---------------- Screen ---------------- */
 
-export default function OrbitalsScreen({ fallbackRoute = "home", size = 40, color = "#e5e5e5", style, onPress }: BackButtonProps) {
+export default function OrbitalsScreen({
+    fallbackRoute = 'home',
+    size = 40,
+    color = '#e5e5e5',
+    style,
+    onPress,
+}: BackButtonProps) {
     const insets = useSafeAreaInsets();
-    const { joined, mine, loading, refreshing, error, refresh, retry } = useOrbitals();
-
-    const [index, setIndex] = useState(0);
-    const [pageW, setPageW] = useState(0);
-    const progress = useRef(new Animated.Value(0)).current; // 0 = joined, 1 = mine
+    const { joined, all, mine, loading, refreshing, error, refresh, retry } = useOrbitals();
     const navigation = useNavigation<any>();
-    const p = useSharedValue(0);
 
+    // The whole swipe/tab system is this one line
+    const swipe = useSwipeTabs({ count: TABS.length });
+
+    // --- back button press animation ---
+    const p = useSharedValue(0);
     const animated = useAnimatedStyle(() => ({
         transform: [{ scale: interpolate(p.value, [0, 1], [1, 0.92]) }],
         shadowOpacity: interpolate(p.value, [0, 1], [0.85, 0.15]),
-        backgroundColor: p.value > 0.5 ? "#0b0b0d" : "#18181c",
+        backgroundColor: p.value > 0.5 ? '#0b0b0d' : '#18181c',
     }));
 
     const handleBack = () => {
@@ -255,28 +226,8 @@ export default function OrbitalsScreen({ fallbackRoute = "home", size = 40, colo
         else navigation.navigate(fallbackRoute);
     };
 
-    const goTo = useCallback(
-        (i: number) => {
-            setIndex(i);
-            Animated.timing(progress, {
-                toValue: i,
-                duration: 320,
-                easing: Easing.out(Easing.cubic),
-                useNativeDriver: true,
-            }).start();
-        },
-        [progress]
-    );
-
-    const handlePressItem = useCallback((item: Item) => {
-        // TODO: navigate to the orbital page, e.g. router.push(`/orbital/${item._id}`)
-    }, []);
-
-    const pagerX = progress.interpolate({ inputRange: [0, 1], outputRange: [0, -pageW] });
-    const joinedOpacity = progress.interpolate({ inputRange: [0, 1], outputRange: [1, 0.25] });
-    const mineOpacity = progress.interpolate({ inputRange: [0, 1], outputRange: [0.25, 1] });
-
     const bottomPad = insets.bottom + 96; // room for your tab bar, adjust if needed
+    const listProps = { loading, error, refreshing, bottomPad, onRefresh: refresh, onRetry: retry };
 
     return (
         <View className="flex-1 bg-black" style={{ paddingTop: insets.top }}>
@@ -286,15 +237,28 @@ export default function OrbitalsScreen({ fallbackRoute = "home", size = 40, colo
                 accessibilityLabel="Go back"
                 hitSlop={8}
                 onPress={handleBack}
-                onPressIn={() => { p.value = withTiming(1, { duration: 110 }); }}
-                onPressOut={() => { p.value = withTiming(0, { duration: 260, easing: Easing.bezier(0.22, 1, 0.36, 1) }); }}
+                onPressIn={() => {
+                    p.value = withTiming(1, { duration: 110 });
+                }}
+                onPressOut={() => {
+                    p.value = withTiming(0, { duration: 260, easing: Easing.bezier(0.22, 1, 0.36, 1) });
+                }}
             >
                 <Reanimated.View
                     style={[
                         {
-                            width: size, height: size, borderRadius: size / 2, alignItems: "center", justifyContent: "center",
-                            borderWidth: 1, borderColor: "rgba(255,255,255,0.08)", borderTopColor: "rgba(255,255,255,0.14)",
-                            shadowColor: "#000", shadowOffset: { width: 3, height: 4 }, shadowRadius: 8, elevation: 5,
+                            width: size,
+                            height: size,
+                            borderRadius: size / 2,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            borderWidth: 1,
+                            borderColor: 'rgba(255,255,255,0.08)',
+                            borderTopColor: 'rgba(255,255,255,0.14)',
+                            shadowColor: '#000',
+                            shadowOffset: { width: 3, height: 4 },
+                            shadowRadius: 8,
+                            elevation: 5,
                         },
                         animated,
                         style,
@@ -303,6 +267,7 @@ export default function OrbitalsScreen({ fallbackRoute = "home", size = 40, colo
                     <ChevronLeft size={size * 0.55} color={color} strokeWidth={2.2} />
                 </Reanimated.View>
             </Pressable>
+
             <View className="flex-row items-center justify-center gap-3 pt-3">
                 <OrbitIcon size={48} />
                 <Text className="text-[28px] font-extrabold tracking-wide text-[#E8EAF0]">Orbitals</Text>
@@ -310,53 +275,16 @@ export default function OrbitalsScreen({ fallbackRoute = "home", size = 40, colo
 
             {/* Tabs */}
             <View className="mt-4 px-4">
-                <SegmentedTabs index={index} progress={progress} onChange={goTo} />
+                <SegmentedTabs index={swipe.index} progress={swipe.progress} onChange={swipe.goTo} />
             </View>
 
-            {/* Sliding pages */}
-            <View
-                className="mt-3 flex-1 overflow-hidden"
-                onLayout={(e: LayoutChangeEvent) => setPageW(e.nativeEvent.layout.width)}
-            >
-                {pageW > 0 && (
-                    <Animated.View
-                        style={{
-                            flex: 1,
-                            flexDirection: 'row',
-                            width: pageW * 2,
-                            transform: [{ translateX: pagerX }],
-                        }}
-                    >
-                        <Animated.View style={{ width: pageW, opacity: joinedOpacity }}>
-                            <OrbitalList
-                                data={joined}
-                                loading={loading}
-                                error={error}
-                                refreshing={refreshing}
-                                emptyText="You haven't joined any orbitals yet."
-                                bottomPad={bottomPad}
-                                onRefresh={refresh}
-                                onRetry={retry}
-                                onPressItem={handlePressItem}
-                            />
-                        </Animated.View>
-
-                        <Animated.View style={{ width: pageW, opacity: mineOpacity }}>
-                            <OrbitalList
-                                data={mine}
-                                loading={loading}
-                                error={error}
-                                refreshing={refreshing}
-                                emptyText="You haven't created any orbitals yet."
-                                bottomPad={bottomPad}
-                                onRefresh={refresh}
-                                onRetry={retry}
-                                onPressItem={handlePressItem}
-                            />
-                        </Animated.View>
-                    </Animated.View>
-                )}
-            </View>
+            {/* Swipeable pages */}
+            <SwipePager swipe={swipe} style={{ marginTop: 12 }}>
+                <OrbitalList {...listProps} data={joined} emptyText="You haven't joined any orbitals yet." />
+                <OrbitalList {...listProps} data={all} emptyText="No orbitals to show yet." />
+                <OrbitalList {...listProps} data={mine} emptyText="You haven't created any orbitals yet." />
+            </SwipePager>
+            <CreateOrbital showButton={swipe.index === 2} bottomOffset={insets.bottom + 24} onCreated={() => refresh()} />
         </View>
     );
-}
+} 

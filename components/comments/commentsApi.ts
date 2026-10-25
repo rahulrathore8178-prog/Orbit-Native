@@ -35,6 +35,7 @@ export type Draft = { content: string; attachment: Attachment | null };
 export const COMMENT_ROUTES = {
     list: (postId: string) => `${API_URL}/api/community/posts/${postId}`,
     post: (postId: string) => `${API_URL}/api/community/posts/${postId}/comments`,
+    reply: (postId: string, commentId: string) => `${API_URL}/api/community/posts/${postId}/${commentId}/commentReplies`,
     like: (commentId: string) => `${API_URL}/api/community/comments/${commentId}/like`,
     remove: (commentId: string) => `${API_URL}/api/community/comments/${commentId}`,
 };
@@ -113,7 +114,19 @@ const authConfig = async () => ({ withCredentials: true, headers: { ...(await ge
 export async function fetchComments(postId: string, myId?: string) {
     const { data } = await axios.get(COMMENT_ROUTES.list(postId), await authConfig());
     const list: any[] = Array.isArray(data) ? data : data?.post?.comments ?? [];
-    return list.map((r) => normalizeComment(r, myId));
+
+    const out: Comment[] = [];
+    const walk = (raw: any, rootId: string | null) => {
+        const c = normalizeComment(raw, myId);
+        // embedded replies carry no parentId, so attach the root's id
+        out.push(rootId ? { ...c, parentId: rootId } : c);
+
+        const kids: any[] = raw.replies ?? raw.children ?? [];
+        // all replies group under the top-level comment (one level of nesting in the UI)
+        kids.forEach((k) => walk(k, rootId ?? c._id));
+    };
+    list.forEach((r) => walk(r, null));
+    return out;
 }
 
 export async function createComment(
@@ -135,6 +148,25 @@ export async function createComment(
     if (!raw) throw new Error('The server did not return the new comment');
     return normalizeComment(raw, me._id, me);
 }
+
+export const commentReply = async (
+    commentId: string,
+    postId: string,
+    draft: Draft,
+    parentId: string | null
+): Promise<Comment> => {
+    const { data } = await axios.post(
+        COMMENT_ROUTES.reply(postId, commentId),
+        { content: draft.content, ...(parentId ? { parentId } : {}) },
+        await authConfig()
+    );
+
+    const raw = data?.reply;
+    if (!raw) throw new Error('Reply saved but the server returned no reply');
+
+    // the server doesn't echo parentId, so attach it so the reply groups under its thread
+    return { ...normalizeComment(raw), parentId: parentId ?? commentId };
+};
 
 export const toggleLikeApi = async (commentId: string) => {
     await axios.post(COMMENT_ROUTES.like(commentId), {}, await authConfig());

@@ -2,12 +2,14 @@ import { API_URL } from '@/lib/utils';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import type { Capsule, CapsuleComment, CapsuleFeed, CapsuleGroup, CapsuleUser } from '../../../constants/capsule/types';
+import { authStorage } from '@/lib/auth/authStorage';
+import { normalizeComment } from '@/components/capsule/normalizeComment';
 
 // Each function returns the path for that call. Left empty on purpose.
 // e.g. like: (id) => `/capsules/${id}/like`
 export const ENDPOINTS = {
   feed: '/api/capsule/feed', // GET  -> CapsuleFeed
-  create: '/api/capsulepost', // POST multipart (field "image")
+  create: '/api/capsule/capsulepost', // POST multipart (field "image")
   remove: (_id: string) => `/api/capsule/${_id}`, // DELETE
   like: (_id: string) => `/api/capsule/${_id}/like`, // POST = like, DELETE = unlike
   save: (_id: string) => `/api/capsule/${_id}/preserve`, // POST = save, DELETE = unsave
@@ -21,8 +23,16 @@ export const ENDPOINTS = {
 const http = axios.create({ baseURL: API_URL, timeout: 60000 });
 
 http.interceptors.request.use(async (config) => {
-  const token = await AsyncStorage.getItem('token'); // adjust to your token key
-  if (token) config.headers.Authorization = `Bearer ${token}`;
+  const token = await authStorage.getToken()
+
+  console.log('[CAPSULE TOKEN]', token);
+  console.log('[CAPSULE URL]', config.url);
+
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  // console.log('[CAPSULE HEADERS]', config.headers);
+
   return config;
 });
 
@@ -33,8 +43,8 @@ const idOf = (v: any): string =>
 async function getMe(): Promise<CapsuleUser> {
   const raw = await AsyncStorage.getItem('user');
   const u = raw ? JSON.parse(raw) : {};
-  console.log('[capsules] getMe', u);
-  console.log('[capsules raw]', raw);
+  // console.log('[capsules] getMe', u);
+  // console.log('[capsules raw]', raw);
   return {
     id: String(u.id ?? u._id ?? ''),
     username: u.username ?? '',
@@ -50,18 +60,24 @@ function toCapsule(r: any, meId: string): Capsule {
     mediaUrl: r.mediaUrl,
     createdAt: r.createdAt,
     likesCount: likedBy.length,
+    comments: r.comments ?? [],
     commentsCount: (r.comments ?? []).length,
     likedByMe: likedBy.some((x) => idOf(x) === meId),
     savedByMe: false,
     seen: viewers.some((x) => idOf(x) === meId),
+    caption: r.caption ?? '',
+    viewers: viewers.map((viewer) => ({
+      id: String(viewer._id),
+      username: viewer.username,
+      profilePic: viewer.profilePic,
+    })),
   };
 }
 
 export const capsuleApi = {
   async getFeed(): Promise<CapsuleFeed> {
-    console.log('[1] getFeed called →', API_URL + ENDPOINTS.feed);
     const res = await http.get(ENDPOINTS.feed);
-    console.log('[2] http done', res.status, Array.isArray(res.data) ? res.data.length : typeof res.data);
+    console.log('[1] feed', res.data);
 
     const me = await getMe();
     console.log('[3] me', me);
@@ -108,19 +124,24 @@ export const capsuleApi = {
 
 
   async create(file: { uri: string }, onProgress?: (pct: number) => void) {
-    const form = new FormData();
-    form.append('image', {
-      uri: file.uri,
-      name: 'capsule.jpg',
-      type: 'image/jpeg',
-    } as unknown as Blob);
-    const { data } = await http.post(ENDPOINTS.create, form, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-      onUploadProgress: (e) => {
-        if (e.total) onProgress?.(Math.round((e.loaded / e.total) * 100));
-      },
-    });
-    return data;
+    try {
+      const form = new FormData();
+      form.append('media', {
+        uri: file.uri,
+        name: 'capsule.jpg',
+        type: 'image/jpeg',
+      } as unknown as Blob);
+      const { data } = await http.post(ENDPOINTS.create, form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        withCredentials: true,
+        onUploadProgress: (e) => {
+          if (e.total) onProgress?.(Math.round((e.loaded / e.total) * 100));
+        },
+      });
+      return data;
+    } catch (error) {
+      console.error('Error creating capsule:', error);
+    }
   },
 
   async remove(id: string) {
@@ -151,9 +172,14 @@ export const capsuleApi = {
     return data;
   },
 
-  async addComment(id: string, text: string): Promise<CapsuleComment> {
-    const { data } = await http.post(ENDPOINTS.comments(id), { text });
-    return data;
+  async addComment(id: string, content: string): Promise<CapsuleComment> {
+    try {
+      const { data } = await http.post(ENDPOINTS.comments(id), { content });
+      return normalizeComment(data.comment);
+    } catch (error) {
+      console.error('Error adding comment:', error);
+      throw error;
+    }
   },
 
   async send(id: string, userIds: string[]) {

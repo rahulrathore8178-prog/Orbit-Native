@@ -19,9 +19,18 @@ export type ProfilePost = {
     id: string;
     content: string;
     image?: string;
+    video?: string;
+    voiceNote?: string;
+    voiceNoteDuration?: number;
+    mediaWidth?: number;
+    mediaHeight?: number;
+    createdAt?: string;
     updatedAt: string;
     likesCount: number;
     commentsCount: number;
+    likedBy?: string[];
+    isLikedByCurrentUser?: boolean;
+    isSaved?: boolean;
 };
 
 export type Friend = {

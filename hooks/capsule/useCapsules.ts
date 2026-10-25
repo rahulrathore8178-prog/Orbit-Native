@@ -11,11 +11,12 @@ export function useCapsules(enabled = true) {
 
   
   const load = useCallback(async () => {
-    console.log('[capsules] load start');
+    // console.log('[capsules] load start');
     try {
     setError(null);
     const data = await capsuleApi.getFeed();
-    console.log('[capsules] loaded', data.me?.id, data.mine.length, data.groups.length);
+    // console.log('[capsules] loaded', data.me?.id, data.mine.length, data.groups.length);
+    console.log('[capsules] viewers', data.mine[0]?.viewers);
     setFeed(data);
   } catch (e: any) {
     console.log('[capsules] FAILED', e?.message, e?.response?.status, e?.config?.url);
@@ -120,9 +121,9 @@ if (enabled) load();
   }, [feed]);
 
   // inside useCapsules, below the other hooks
-useEffect(() => {
-  console.log('capsules state →', { loading, error, me: feed?.me, mine: feed?.mine.length, groups: groups.length });
-}, [loading, error, feed, groups]);
+// useEffect(() => {
+//   console.log('capsules state →', { loading, error, me: feed?.me, mine: feed?.mine.length, groups: groups.length });
+// }, [loading, error, feed, groups]);
 
   return {
     me: feed?.me ?? null,

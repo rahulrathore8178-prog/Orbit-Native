@@ -290,7 +290,7 @@ function OrbitalPicker({
 }
 
 /* ---------- main ---------- */
-export default function CreatePost({ onPostCreated, user, bottomOffset = 65 }: Props) {
+export default function CreatePost({ onPostCreated, user, bottomOffset = 100 }: Props) {
     const { height } = useWindowDimensions();
 
     // sheet visibility: mounted first, then animated (same pattern as the side drawer)
@@ -611,7 +611,7 @@ export default function CreatePost({ onPostCreated, user, bottomOffset = 65 }: P
                             <BlurView
                                 intensity={60}
                                 tint="dark"
-                                experimentalBlurMethod="dimezisBlurView"
+                                // blurMethod="dimezisBlurView"
                                 style={StyleSheet.absoluteFill}
                             />
                             <View

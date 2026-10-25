@@ -1,20 +1,19 @@
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
-    BadgeCheck,
-    Bookmark,
-    Bot,
     LifeBuoy,
     LucideIcon,
     Moon,
     Orbit,
+    Search,
     Settings,
     Sun,
-    User
+    User as UserIcon,
 } from 'lucide-react-native';
-import React, { memo, useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { memo, useEffect, useMemo, useRef, useState } from 'react';
 import {
     Animated,
+    BackHandler,
     Easing,
     Platform,
     Pressable,
@@ -22,25 +21,24 @@ import {
     StyleSheet,
     Text,
     View,
-    useWindowDimensions
 } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Reanimated, {
-    Easing as REasing,
     runOnJS,
+    useAnimatedReaction,
     useAnimatedStyle,
     useSharedValue,
     withSpring,
-    withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, GlassPanel, NeoView } from '../ui/neo';
+import { DRAWER_SPRING, useDrawer } from './DrawerContext'; // adjust path to where you put it
 
 export type DrawerItemKey =
     | 'profile'
     | 'premium'
     | 'orbitals'
-    | 'bookmarks'
+    | 'discover'
     | 'lists'
     | 'spaces'
     | 'creator-studio'
@@ -63,25 +61,24 @@ type MenuItem = {
 };
 
 const MAIN_ITEMS: MenuItem[] = [
-    { key: 'profile', label: 'Profile', Icon: User },
-    { key: 'premium', label: 'Premium', Icon: BadgeCheck, badge: '50% off' },
+    { key: 'profile', label: 'Profile', Icon: UserIcon },
+    // { key: 'premium', label: 'Premium', Icon: BadgeCheck, badge: '50% off' },
     { key: 'orbitals', label: 'Orbitals', Icon: Orbit },
+    { key: 'discover', label: 'Discover', Icon: Search },
     // { key: 'communities', label: 'Communities', Icon: Users },
-    { key: 'bookmarks', label: 'Bookmarks', Icon: Bookmark },
+    // { key: 'bookmarks', label: 'Bookmarks', Icon: Bookmark },
     // { key: 'lists', label: 'Lists', Icon: FileText },
     // { key: 'spaces', label: 'Spaces', Icon: Mic },
     // { key: 'creator-studio', label: 'Creator Studio', Icon: Rocket },
 ];
 
 const FOOTER_ITEMS: MenuItem[] = [
-    { key: 'automate', label: 'Automate work', Icon: Bot, badge: 'New' },
+    // { key: 'automate', label: 'Automate work', Icon: Bot, badge: 'New' },
     { key: 'settings', label: 'Settings and privacy', Icon: Settings },
     { key: 'help', label: 'Help Centre', Icon: LifeBuoy },
 ];
 
 type Props = {
-    visible: boolean;
-    onClose: () => void;
     user: DrawerUser | null;
     onSelect: (key: DrawerItemKey) => void;
     darkMode: boolean;
@@ -89,41 +86,42 @@ type Props = {
     onPressMore?: () => void;
 };
 
-const OPEN_EASING = REasing.bezier(0.22, 1, 0.36, 1); // fast start, long soft landing
-const CLOSE_EASING = REasing.bezier(0.4, 0, 1, 1);
-
 function SideDrawer({
-    visible,
-    onClose,
     user,
     onSelect,
     darkMode,
     onToggleDarkMode,
     onPressMore,
 }: Props) {
-    const { width } = useWindowDimensions();
     const insets = useSafeAreaInsets();
-    const drawerW = Math.min(width * 0.84, 340);
-
-    const progress = useSharedValue(0); // 0 closed, 1 open
+    const { progress, drawerW, close } = useDrawer(); // 0 closed -> 1 open, shared with the feed gesture
     const startProgress = useSharedValue(0);
+    const [active, setActive] = useState(false); // true while any part of the drawer is on screen
 
-    const onCloseRef = useRef(onClose);
-    onCloseRef.current = onClose;
-    const requestClose = useCallback(() => onCloseRef.current(), []);
+    // flips touch handling on/off only when the drawer starts/stops being visible
+    useAnimatedReaction(
+        () => progress.value > 0.001,
+        (now, prev) => {
+            if (now !== prev) runOnJS(setActive)(now);
+        }
+    );
 
-    // open / close: one shared value change, nothing mounts or unmounts
+    // Android back button closes the drawer first
     useEffect(() => {
-        progress.value = visible
-            ? withTiming(1, { duration: 320, easing: OPEN_EASING })
-            : withTiming(0, { duration: 240, easing: CLOSE_EASING });
-    }, [visible, progress]);
+        if (!active) return;
+        const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+            close();
+            return true;
+        });
+        return () => sub.remove();
+    }, [active, close]);
 
-    // swipe left to close, fully on the UI thread
+    // finger-tracked pan: drag anywhere (drawer or dimmed backdrop) to close,
+    // release springs to open/closed using your finger's velocity
     const pan = useMemo(
         () =>
             Gesture.Pan()
-                .activeOffsetX([-12, 12])
+                .activeOffsetX([-10, 10])
                 .failOffsetY([-14, 14])
                 .onStart(() => {
                     startProgress.value = progress.value;
@@ -133,19 +131,14 @@ function SideDrawer({
                     progress.value = Math.min(1, Math.max(0, next));
                 })
                 .onEnd((e) => {
-                    if (e.velocityX < -500 || progress.value < 0.65) {
-                        progress.value = withTiming(
-                            0,
-                            { duration: 200, easing: CLOSE_EASING },
-                            (finished) => {
-                                if (finished) runOnJS(requestClose)();
-                            }
-                        );
-                    } else {
-                        progress.value = withSpring(1, { damping: 28, stiffness: 320 });
-                    }
+                    const open =
+                        e.velocityX > 500 ? true : e.velocityX < -500 ? false : progress.value > 0.5;
+                    progress.value = withSpring(open ? 1 : 0, {
+                        ...DRAWER_SPRING,
+                        velocity: e.velocityX / drawerW,
+                    });
                 }),
-        [drawerW, progress, startProgress, requestClose]
+        [drawerW, progress, startProgress]
     );
 
     const drawerStyle = useAnimatedStyle(() => ({
@@ -154,33 +147,31 @@ function SideDrawer({
     const backdropStyle = useAnimatedStyle(() => ({
         opacity: progress.value * 0.6,
     }));
-    // console.log('SideDrawer rendered', user.avatar);
-    // console.log('drawer user:', user)
-    // console.log('drawer pic ->', resolveImg(user?.profilePic))
 
     return (
-        <View style={styles.root} pointerEvents={visible ? 'auto' : 'none'}>
-            {/* Backdrop */}
-            <Reanimated.View style={[StyleSheet.absoluteFill, styles.backdrop, backdropStyle]}>
-                <Pressable
-                    style={StyleSheet.absoluteFill}
-                    onPress={onClose}
-                    accessibilityLabel="Close menu"
-                />
-            </Reanimated.View>
+        <GestureDetector gesture={pan}>
+            <View style={styles.root} pointerEvents={active ? 'auto' : 'none'}>
+                {/* Backdrop */}
+                <Reanimated.View style={[StyleSheet.absoluteFill, styles.backdrop, backdropStyle]}>
+                    <Pressable
+                        style={StyleSheet.absoluteFill}
+                        onPress={close}
+                        accessibilityLabel="Close menu"
+                    />
+                </Reanimated.View>
 
-            {/* Drawer */}
-            <GestureDetector gesture={pan}>
+                {/* Drawer */}
                 <Reanimated.View style={[styles.drawer, { width: drawerW }, drawerStyle]}>
-                    {/* iOS: real blur. Android: a solid layer, because re-blurring a moving view
-                        every frame is the biggest cause of drawer lag on Android. */}
+                    {/* iOS: real blur. Android: skip live blur, because re-blurring a moving view
+                        every frame is the biggest cause of drawer lag on Android. The gradient
+                        below provides the glass look there. */}
                     {Platform.OS === 'ios' ? (
                         <BlurView intensity={55} tint="dark" style={StyleSheet.absoluteFill} />
                     ) : (
                         <View
                             pointerEvents="none"
-                            style={[StyleSheet.absoluteFill]}
-                            className="bg-black/5 backdrop-blur-sm"
+                            style={StyleSheet.absoluteFill}
+                            className="bg-black/5"
                         />
                     )}
                     <LinearGradient
@@ -206,14 +197,16 @@ function SideDrawer({
                         <GlassPanel radius={26} style={{ padding: 16 }}>
                             <View style={styles.headerTop}>
                                 <NeoView radius={36} style={{ width: 68, height: 68 }}>
-                                    {user?.profilePic && (
-                                    //     <Image source={{ uri: resolveImg(user?.profilePic) }} style={styles.avatar} />
-                                    // ) : (
-                                    //     <Text style={styles.avatarFallback}>
-                                    //         {user?.username?.charAt(0).toUpperCase()}
-                                    //     </Text>
-                                    <User color='white' />
-                                    )}
+                                    {/* {user?.profilePic ? (
+                                        <Image
+                                            source={{ uri: user?.profilePic }}
+                                            style={styles.avatar}
+                                        />
+                                    ) : (
+                                        <View>
+                                        </View>
+                                    )} */}
+                                    <UserIcon color="white" size={32} />
                                 </NeoView>
 
                                 <Pressable
@@ -287,8 +280,8 @@ function SideDrawer({
                         </GlassPanel>
                     </View>
                 </Reanimated.View>
-            </GestureDetector>
-        </View>
+            </View>
+        </GestureDetector>
     );
 }
 
@@ -407,7 +400,7 @@ function NeoSwitch({
 
 const styles = StyleSheet.create({
     root: {
-        ...StyleSheet.absoluteFillObject,
+        ...StyleSheet.absoluteFill,
         zIndex: 1000,
         elevation: 1000, // Android z-order
     },
@@ -424,7 +417,7 @@ const styles = StyleSheet.create({
         borderTopWidth: 1,
         borderBottomWidth: 1,
         borderColor: COLORS.glassBorder,
-        backgroundColor: 'rgba(10,12,18,0.6)',
+        backgroundColor: 'rgba(10,12,18)',
     },
     headerTop: {
         flexDirection: 'row',

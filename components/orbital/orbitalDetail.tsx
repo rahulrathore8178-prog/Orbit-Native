@@ -1,10 +1,12 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ChevronLeft, Crown, Globe, Lock, Shield, User, Users } from 'lucide-react-native';
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Image, Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, GlassPanel, NeoView } from '../ui/neo';
 import { MyOrbital, Orbital, resolveUrl } from './orbitalData';
+import { API_URL } from '@/lib/utils';
+import axios from 'axios';
 
 const ROLE_META = {
     creator: { label: 'Creator', Icon: Crown },

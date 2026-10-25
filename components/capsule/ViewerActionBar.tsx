@@ -28,13 +28,13 @@ export function ViewerActionBar({ capsule, onLike, onComment, onSave, onSend }: 
           accessibilityLabel={capsule.likedByMe ? 'Unlike' : 'Like'}
         />
         <NeoButton icon="chatbubble-outline" onPress={onComment} accessibilityLabel="Comment" />
-        <NeoButton
+        {/* <NeoButton
           icon={capsule.savedByMe ? 'bookmark' : 'bookmark-outline'}
           color={capsule.savedByMe ? COLORS.accent : COLORS.text}
           onPress={onSave}
           accessibilityLabel={capsule.savedByMe ? 'Remove from saved' : 'Preserve capsule'}
         />
-        <NeoButton icon="paper-plane-outline" onPress={onSend} accessibilityLabel="Send" />
+        <NeoButton icon="paper-plane-outline" onPress={onSend} accessibilityLabel="Send" /> */}
       </View>
     </GlassPanel>
   );

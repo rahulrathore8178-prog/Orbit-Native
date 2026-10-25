@@ -12,17 +12,18 @@ type Props = {
     post: ProfilePost;
     canDelete: boolean;
     onDelete: (id: string) => void;
+    onSavePost: (id: string) => void;
     onShare: (post: ProfilePost) => void;
 };
 
-export default function PostCard({ post, canDelete, onDelete, onShare }: Props) {
+export default function PostCard({ post, canDelete, onDelete, onSavePost, onShare }: Props) {
     return (
         <GlassPanel radius={28} style={{ padding: 16 }}>
             <View className="flex-row items-center justify-between">
                 <Text className="text-xs text-neutral-400">{formatTimeAgo(post.updatedAt)}</Text>
                 {canDelete && (
                     <Pressable onPress={() => onDelete(post.id)} hitSlop={12} accessibilityLabel="Delete post">
-                        <Trash2 size={20} color="#f87171" strokeWidth={2} />
+                        <Trash2 size={20} color="#f87171" strokeWidth={1} />
                     </Pressable>
                 )}
             </View>
