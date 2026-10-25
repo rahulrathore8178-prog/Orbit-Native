@@ -1,4 +1,4 @@
-import { Friend, FriendStatus, ProfilePost, ProfileUser } from '@/components/profile/profile';
+import { Friend, FriendRequest, FriendStatus, ProfilePost, ProfileUser } from '@/components/profile/profile';
 import { API_URL } from '@/lib/utils'; // adjust to wherever you export API_URL today
 
 export const resolveUri = (uri?: string) =>
@@ -18,6 +18,13 @@ export const toFriend = (raw: any): Friend => ({
     profilePic: resolveUri(raw?.profilePic),
 });
 
+/** Item of GET /api/social/friend-requests: { _id, from: {_id, username, profilePic}, createdAt } */
+export const toFriendRequest = (raw: any): FriendRequest => ({
+    requestId: idOf(raw),
+    user: toFriend(raw?.from),
+    createdAt: raw?.createdAt,
+});
+
 export const toProfileUser = (raw: any): ProfileUser => ({
     id: raw?._id ?? raw?.id ?? '',
     username: raw?.username ?? '',
@@ -25,6 +32,7 @@ export const toProfileUser = (raw: any): ProfileUser => ({
     bio: raw?.bio ?? '',
     profilePic: resolveUri(raw?.profilePic),
     friendStatus: FRIEND_STATUSES.includes(raw?.friendStatus) ? raw?.friendStatus : 'none',
+    isPrivate: raw?.isPrivate === true,
     // friends may arrive as bare id strings; drop entries with no usable id
     friends: (raw?.friends ?? []).map(toFriend).filter((f: Friend) => f.id),
 });

@@ -1,9 +1,10 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { authStorage } from "@/lib/auth/authStorage";
+import { useKeyboardVisible } from "@/hooks/useKeyboardVisible";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { Menu } from "lucide-react-native";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StatusBar, Text, useWindowDimensions, View } from "react-native";
+import { KeyboardAvoidingView, Pressable, ScrollView, StatusBar, Text, useWindowDimensions, View } from "react-native";
 import Animated, { FadeOut, LinearTransition } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Composer from "../../components/igris/Composer";
@@ -11,11 +12,39 @@ import IgrisMark from "../../components/igris/IgrisMark";
 import { LoadingOverlay, MessageBubble } from "../../components/igris/Messages";
 import { NeoButton, Reveal } from "../../components/igris/primitives";
 import Sidebar from "../../components/igris/Sidebar";
-import { Attachment, authHeaders, Chat, EASE_OUT, getRandomGreeting, IGRIS_API_URL, Message, uid } from "../../components/igris/utils";
+import { KEYBOARD_GAP, TAB_BAR_GAP, TAB_BAR_HEIGHT } from "../../components/search/constants";
+import { Attachment, authHeaders, Chat, EASE_OUT, getRandomGreeting, IGRIS_NODE_URL, Message, PYTHON_API_URL, uid } from "../../components/igris/utils";
+
+/** Read a response as text first: a wrong URL / proxy error returns HTML, which would crash res.json(). */
+async function readJson(res: Response) {
+    const raw = await res.text();
+    let data: any = null;
+    try { data = JSON.parse(raw); } catch { /* not JSON */ }
+    if (!res.ok) throw new Error(data?.error ?? data?.message ?? `Request failed (${res.status})`);
+    return data;
+}
+
+/** Turn a saved conversation document into chat bubbles (new `chatHistory` format + the old question/response one). */
+function toMessages(doc: any): Message[] {
+    const history: any[] = Array.isArray(doc?.chatHistory) ? doc.chatHistory : [];
+    const out = history.flatMap((e): Message[] =>
+        e.role && e.content
+            ? [{ id: uid(), role: e.role, text: e.content }]
+            : ([
+                e.question && { id: uid(), role: "user", text: e.question },
+                e.answer && { id: uid(), role: "assistant", text: e.answer },
+            ].filter(Boolean) as Message[]));
+    if (out.length === 0 && doc?.question) {
+        out.push({ id: uid(), role: "user", text: doc.question });
+        if (doc.response) out.push({ id: uid(), role: "assistant", text: doc.response });
+    }
+    return out;
+}
 
 export default function AskIgris({ onSend }: { onSend?: (p: { text: string; attachment: Attachment | null }) => void } = {}) {
     const insets = useSafeAreaInsets();
     const { width } = useWindowDimensions();
+    const keyboardOpen = useKeyboardVisible();
 
     const [messages, setMessages] = useState<Message[]>([]);
     const [text, setText] = useState("");
@@ -34,66 +63,70 @@ export default function AskIgris({ onSend }: { onSend?: (p: { text: string; atta
     const heroSize = Math.min(128, Math.max(80, width * 0.2));
     const canSend = text.trim().length > 0 || !!attachment;
 
-    /* ---------- history ---------- */
+    // Same trick as the search bar: rest above the floating tab bar; when the keyboard opens the bar is hidden, so sit just above the keyboard.
+    const dockPadding = keyboardOpen ? KEYBOARD_GAP : insets.bottom + TAB_BAR_HEIGHT + TAB_BAR_GAP;
+
+    /** Resolve the logged-in user id (state may not be loaded yet when the user acts fast). */
+    const resolveUserId = useCallback(async () => {
+        if (currentUserId) return currentUserId;
+        const u = await authStorage.getUser<any>();
+        const id = u?.id || u?._id || "";
+        if (id) setCurrentUserId(id);
+        return id as string;
+    }, [currentUserId]);
+
     const getIgrisHistory = useCallback(async (userId: string) => {
-        const token = await AsyncStorage.getItem("token");
-        if (!token || !userId) return;
+        if (!userId) return;
         try {
-            const res = await fetch(`${IGRIS_API_URL}/history/${userId}`, { headers: await authHeaders() });
-            if (res.status === 401) {
-                await AsyncStorage.multiRemove(["token", "user"]);
-                /* TODO: navigate to login */
-                return;
-            }
-            setIgrisHistory(await res.json());
+            const res = await fetch(`${IGRIS_NODE_URL}/history/${userId}`, { headers: await authHeaders() });
+            const data = await readJson(res);
+            const list = Array.isArray(data) ? data : data?.history ?? data?.conversations ?? [];
+            setIgrisHistory(Array.isArray(list) ? list.filter((c: any) => c?._id) : []);
         } catch (e) { console.error("Error fetching Igris history:", e); }
     }, []);
 
     useEffect(() => {
         (async () => {
-            const raw = await AsyncStorage.getItem("user");
-            const u = raw ? JSON.parse(raw) : null;
-            const id = u?.id || u?._id || "";
-            setCurrentUserId(id);
+            const id = await resolveUserId();
             getIgrisHistory(id);
         })();
-    }, [getIgrisHistory]);
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // refresh the list every time the drawer is opened, so it is never stale
+    useEffect(() => {
+        if (sidebarOpen && currentUserId) getIgrisHistory(currentUserId);
+    }, [sidebarOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const openIgrisChat = async (chat: Chat) => {
-        if (!chat?._id) return;
+        if (!chat?._id || isLoading) return;
+        setSidebarOpen(false);
+        setIsLoading(true);
         try {
-            const res = await fetch(`${IGRIS_API_URL}/history/${currentUserId}/${chat._id}`, { headers: await authHeaders() });
-            const data = await res.json();
-            const history: any[] = data?.chatHistory || [];
-            const loaded: Message[] = history.flatMap((e) =>
-                e.role && e.content
-                    ? [{ id: uid(), role: e.role, text: e.content } as Message]
-                    : ([
-                        e.question && { id: uid(), role: "user", text: e.question },
-                        e.answer && { id: uid(), role: "assistant", text: e.answer },
-                    ].filter(Boolean) as Message[]));
+            const userId = await resolveUserId();
+            const res = await fetch(`${PYTHON_API_URL}/history/${userId}/${chat._id}`, { headers: await authHeaders() });
+            const data = await readJson(res);
             setActiveConversationId(chat._id);
             setActiveTitle(chat.title);
-            setMessages(loaded);
-            setSidebarOpen(false);
-        } catch (e) { console.error("Error opening Igris chat:", e); }
+            setMessages(toMessages(data));
+        } catch (e) {
+            console.error("Error opening Igris chat:", e);
+            setMessages((prev) => [...prev, { id: uid(), role: "assistant", text: "Couldn't load that chat. Please try again.", isError: true }]);
+        } finally { setIsLoading(false); }
     };
 
     const newConversation = useCallback(() => {
         setActiveConversationId(null);
         setActiveTitle("");
         setMessages([]);
+        setText("");
+        setAttachment(null);
         setSidebarOpen(false);
     }, []);
-
-    useEffect(() => {
-        if (hasStarted) setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 50);
-    }, [messages, isLoading, hasStarted]);
 
     /* ---------- pickers ---------- */
     const pickImage = async () => {
         setMenuOpen(false);
-        const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 1 });
+        const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.8 });
         const a = r.assets?.[0];
         if (!r.canceled && a) {
             setAttachment({ name: a.fileName ?? `image-${Date.now()}.jpg`, size: a.fileSize ?? 0, kind: "image", type: a.mimeType ?? "image/jpeg", preview: a.uri, uri: a.uri });
@@ -117,6 +150,7 @@ export default function AskIgris({ onSend }: { onSend?: (p: { text: string; atta
         const outgoing = attachment;
         const isImage = outgoing?.kind === "image";
         const title = question.slice(0, 60) || "New Conversation";
+        const isNewChat = !activeConversationId;
 
         setMessages((prev) => [...prev, { id: uid(), role: "user", text: question, attachment: outgoing }]);
         setText(""); setAttachment(null); setMenuOpen(false); setIsLoading(true);
@@ -131,33 +165,35 @@ export default function AskIgris({ onSend }: { onSend?: (p: { text: string; atta
                 body.append("file", { uri: outgoing.uri, name: outgoing.name, type: outgoing.type } as any);
                 body.append("systemprompt", question || "Describe the image.");
                 if (activeConversationId) body.append("conversationId", activeConversationId);
-                const res = await fetch(`${IGRIS_API_URL}/describe_image`, { method: "POST", headers: await authHeaders(), body });
-                if (!res.ok) throw new Error(`Request failed with status ${res.status}`);
-                data = await res.json();
+                // no Content-Type here: fetch adds the multipart boundary itself
+                const res = await fetch(`${PYTHON_API_URL}/describe_image`, { method: "POST", headers: await authHeaders(), body });
+                data = await readJson(res);
             } else {
-                const res = await fetch(`${IGRIS_API_URL}/askPrompt`, {
+                if (!question) throw new Error("Only images can be sent without a message.");
+                const res = await fetch(`${PYTHON_API_URL}/askPrompt`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json", ...(await authHeaders()) },
                     body: JSON.stringify({ question, title, conversationId: activeConversationId, source: null }),
                 });
-                if (!res.ok) throw new Error(`Request failed with status ${res.status}`);
-                data = await res.json();
+                data = await readJson(res);
             }
 
             if (data?.conversation?._id) {
                 setActiveConversationId(data.conversation._id);
                 setActiveTitle((t) => t || data.conversation.title || title);
-                if (!activeConversationId) getIgrisHistory(currentUserId); // refresh sidebar for brand-new chats
             }
+            if (isNewChat) getIgrisHistory(await resolveUserId()); // new chat → show it in the drawer
+
             const replyText = data?.answer ?? data?.prompt ?? data?.text ?? "Hmm, no reply came back.";
             setMessages((prev) => [...prev, { id: uid(), role: "assistant", text: replyText }]);
-        } catch (err) {
+        } catch (err: any) {
             console.error("send failed:", err);
-            setMessages((prev) => [...prev, { id: uid(), role: "assistant", text: "Couldn't reach the server. Please try again.", isError: true }]);
+            const msg = /^Only images/.test(err?.message) ? err.message : "Couldn't reach the server. Please try again.";
+            setMessages((prev) => [...prev, { id: uid(), role: "assistant", text: msg, isError: true }]);
         } finally {
             setIsLoading(false);
         }
-    }, [text, attachment, onSend, isLoading, activeConversationId, currentUserId, getIgrisHistory]);
+    }, [text, attachment, onSend, isLoading, activeConversationId, getIgrisHistory, resolveUserId]);
 
     const composer = (
         <Composer
@@ -167,7 +203,8 @@ export default function AskIgris({ onSend }: { onSend?: (p: { text: string; atta
     );
 
     return (
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} className="flex-1 bg-black">
+        // "padding" on both platforms (same as the search dock) so the composer rides above the keyboard
+        <KeyboardAvoidingView behavior="padding" className="flex-1 bg-black">
             <StatusBar barStyle="light-content" backgroundColor="#000" />
             <View className="flex-1 bg-black overflow-hidden" style={{ paddingTop: insets.top }}>
                 {/* ambient glass glow */}
@@ -176,7 +213,7 @@ export default function AskIgris({ onSend }: { onSend?: (p: { text: string; atta
                 </View>
 
                 {/* sidebar toggle — top-right (top depends on safe-area inset) */}
-                <View className="absolute right-3 z-40" style={{ top: insets.top + 12 }}>
+                <View className="absolute right-3 z-40" style={{ top: insets.top + 10 }}>
                     <NeoButton label="Toggle sidebar" size={36} onPress={() => setSidebarOpen((o) => !o)}>
                         <Menu size={18} color="#a1a1aa" />
                     </NeoButton>
@@ -198,7 +235,9 @@ export default function AskIgris({ onSend }: { onSend?: (p: { text: string; atta
                 {/* message list */}
                 {hasStarted && (
                     <ScrollView
-                        ref={scrollRef} className="flex-1" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}
+                        ref={scrollRef} className="flex-1" keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive"
+                        showsVerticalScrollIndicator={false}
+                        onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
                         contentContainerClassName="w-full max-w-2xl self-center px-4 pt-6 pb-4 gap-4">
                         {messages.map((m) => <MessageBubble key={m.id} message={m} />)}
                     </ScrollView>
@@ -207,19 +246,18 @@ export default function AskIgris({ onSend }: { onSend?: (p: { text: string; atta
                 {/* tap-outside to close attach menu */}
                 {menuOpen && <Pressable onPress={() => setMenuOpen(false)} className="absolute inset-0 z-[5]" />}
 
-                {/* composer area — slides from centre to bottom via layout animation */}
+                {/* composer dock — centred before the first message, pinned above the floating tab bar after */}
                 <Animated.View
                     layout={LinearTransition.duration(480).easing(EASE_OUT)}
                     className={`w-full items-center justify-center px-4 z-10 ${hasStarted ? "" : "flex-1"}`}>
                     <Animated.View
                         layout={LinearTransition.duration(480).easing(EASE_OUT)}
-                        className="w-[94%] max-w-[544px] gap-4 pt-2"
-                        style={{ paddingBottom: hasStarted ? Math.max(16, insets.bottom) : 8 }}>
+                        className="w-full max-w-[544px] gap-4 pt-2"
+                        style={{ paddingBottom: dockPadding }}>
                         {!hasStarted && (
                             <Reveal delay={120} duration={600} y={14} className="items-center gap-5 mb-1">
                                 <Animated.View exiting={FadeOut.duration(200)} className="items-center gap-5">
                                     <IgrisMark size={heroSize} />
-                                    {/* font size scales with screen width */}
                                     <Text className="text-center text-zinc-100 font-medium tracking-tight px-2"
                                         style={{ fontSize: Math.min(30, Math.max(20, width * 0.034 + 8)) }}>
                                         {greeting}

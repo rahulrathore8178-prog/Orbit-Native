@@ -11,8 +11,11 @@ export type ProfileUser = {
     handle: string; // includes the leading @
     bio: string;
     profilePic?: string;
+    phone?: string;
     friends: Friend[];
     friendStatus: FriendStatus;
+    /** Private profiles hide posts from non-friends. Own profile uses this to show the Requests tab. */
+    isPrivate: boolean;
 };
 
 export type ProfilePost = {
@@ -39,4 +42,11 @@ export type Friend = {
     profilePic?: string;
 };
 
-export type ProfileTabKey = 'posts' | 'friends';
+/** Incoming friend request. `requestId` is the request's own _id: accept/reject use it, NOT the user id. */
+export type FriendRequest = {
+    requestId: string;
+    user: Friend;
+    createdAt?: string;
+};
+
+export type ProfileTabKey = 'posts' | 'friends' | 'requests';

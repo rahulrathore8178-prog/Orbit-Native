@@ -28,7 +28,7 @@ export interface PostcardProps {
     isSaved?: boolean;
     isOwn?: boolean;
     /** Set on posts that belong to an orbital. */
-    orbital?: { id?: string; name?: string };
+    orbital?: { id?: string; name?: string; image?: string };
     /** Pass from a FlatList viewability callback to auto-pause off-screen media. */
     isVisible?: boolean;
     onPressComments?: () => void;

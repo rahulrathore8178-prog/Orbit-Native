@@ -67,7 +67,7 @@ export const fetchOrbitalRequests = async (orbitalId: string): Promise<Orbital[]
 
 export function useOrbitals() {
     const [all, setAll] = useState<Orbital[]>([]);
-    const [joined, setJoined] = useState<Orbital[]>([]);
+    const [joined, setJoined] = useState<MyOrbital[]>([]);
     const [mine, setMine] = useState<MyOrbital[]>([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -80,10 +80,10 @@ export function useOrbitals() {
             setError(null);
             const [allOrbitals, my] = await Promise.all([fetchAllOrbitals(), fetchMyOrbitals()]);
             setAll(allOrbitals);
-            // For now the Joined tab shows every orbital.
-            // Later: point this at your real "joined orbitals" endpoint.
-            setJoined(allOrbitals);
-            setMine(my);
+            // /mine returns every orbital I'm an active member of, each with my role.
+            // Joined = orbitals I joined (member or admin), Mine = orbitals I created, All = everything.
+            setJoined(my.filter((o) => o.role !== 'creator'));
+            setMine(my.filter((o) => o.role === 'creator'));
         } catch (err: any) {
             setError('Could not load orbitals. Check your connection and try again.');
             console.error('Error loading orbitals:', err);

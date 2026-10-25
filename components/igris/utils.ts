@@ -1,12 +1,16 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { authStorage } from "../../lib/auth/authStorage";
 import { Easing } from "react-native-reanimated";
 import { API_URL } from "../../lib/utils";
 
 /* ---------- API ---------- */
-export const IGRIS_API_URL = `${API_URL}/api/askigris`;
+/** Node backend: saved history list (same as web: `${apiUrl}/api/askigris/history/:userId`). */
+export const IGRIS_NODE_URL = `${API_URL}/api/askigris`;
+/** Python server: askPrompt, describe_image, history/:userId/:chatId (same as web `pythonApiUrl`). No /api/askigris prefix here. */
+export const PYTHON_API_URL = (process.env.EXPO_PUBLIC_PYTHON_API_URL ?? "").replace(/\/+$/, "");
 
+/** Token lives in SecureStore on native (see authStorage), so it must be read from there, not AsyncStorage. */
 export const authHeaders = async (): Promise<Record<string, string>> => {
-    const token = await AsyncStorage.getItem("token");
+    const token = await authStorage.getToken();
     return token ? { Authorization: `Bearer ${token}` } : {};
 };
 

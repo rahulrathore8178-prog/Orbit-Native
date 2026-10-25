@@ -58,7 +58,8 @@ export default function Sidebar({ open, onClose, chats, onSelectChat, newConvers
 
     const panel = useAnimatedStyle(() => ({ transform: [{ translateX: (1 - p.value) * panelW }] }));
     const backdrop = useAnimatedStyle(() => ({ opacity: p.value }));
-    const filtered = chats.filter((c) => c.title?.toLowerCase().includes(query.trim().toLowerCase()));
+    const list = Array.isArray(chats) ? chats : [];
+    const filtered = list.filter((c) => c.title?.toLowerCase().includes(query.trim().toLowerCase()));
 
     if (!mounted && !open) return null;
 

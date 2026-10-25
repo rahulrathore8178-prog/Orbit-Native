@@ -127,8 +127,14 @@ const AvatarInitial = ({ name, size = 36 }: { name?: string; size?: number }) =>
     </View>
 );
 
+// orbital photos are absolute urls (Drive) or server paths; phones can't reach localhost
+const orbitalImageUri = (u?: string) =>
+    u ? (u.startsWith('/') ? `${API_URL}${u}` : u.replace(/^https?:\/\/localhost:5000/, API_URL)) : undefined;
+
 const PostHeader = ({
     author,
+    orbital,
+    onOpenOrbital,
     createdAt,
     showDelete,
     disableAuthorPress,
@@ -136,12 +142,72 @@ const PostHeader = ({
     onDelete,
 }: {
     author: PostAuthor;
+    orbital?: PostcardProps['orbital'];
+    onOpenOrbital?: () => void;
     createdAt: PostcardProps['createdAt'];
     showDelete?: boolean;
     disableAuthorPress?: boolean;
     onOpenAuthor: () => void;
     onDelete: () => void;
-}) => (
+}) => orbital?.name ? (
+    // Orbital post: the orbital (photo + name) comes first, the person who posted it is nested under it.
+    <View className="px-3.5 pb-3 pt-4">
+        <View className="flex-row items-center">
+            <TouchableOpacity
+                activeOpacity={0.75}
+                disabled={!orbital.id}
+                onPress={onOpenOrbital}
+                accessibilityRole="button"
+                accessibilityLabel={`Open ${orbital.name} orbital`}
+                className="flex-1 flex-row items-center"
+            >
+                <View className="mr-3">
+                    {orbitalImageUri(orbital.image) ? (
+                        <Image
+                            source={{ uri: orbitalImageUri(orbital.image) }}
+                            className="h-9 w-9 rounded-full border-[1.5px] border-white/50"
+                        />
+                    ) : (
+                        <AvatarInitial name={orbital.name} size={36} />
+                    )}
+                </View>
+                <View className="flex-1">
+                    <Text numberOfLines={1} className="text-sm font-bold text-white">{orbital.name}</Text>
+                    <Text className="mt-px text-[11px] text-white/65">Orbital</Text>
+                </View>
+            </TouchableOpacity>
+
+            {showDelete && (
+                <TouchableOpacity
+                    onPress={onDelete}
+                    hitSlop={10}
+                    accessibilityRole="button"
+                    accessibilityLabel="Delete post"
+                    className="p-1"
+                >
+                    <Ionicons name="trash-outline" size={17} color="rgba(255,255,255,0.7)" />
+                </TouchableOpacity>
+            )}
+        </View>
+
+        <TouchableOpacity
+            activeOpacity={0.75}
+            disabled={disableAuthorPress}
+            onPress={onOpenAuthor}
+            accessibilityRole="button"
+            accessibilityLabel={`Open ${author.username}'s profile`}
+            className="ml-[17px] mt-2.5 flex-row items-center self-start border-l border-white/20 pl-5"
+        >
+            {author.profilePic ? (
+                <Image source={{ uri: author.profilePic }} className="h-6 w-6 rounded-full border border-white/40" />
+            ) : (
+                <AvatarInitial name={author.username} size={24} />
+            )}
+            <Text numberOfLines={1} className="ml-2 text-[13px] font-semibold text-white/90">{author.username}</Text>
+            <Text className="ml-2 text-[11px] text-white/55">{formatTimeAgo(createdAt)} ago</Text>
+        </TouchableOpacity>
+    </View>
+) : (
     <View className="flex-row items-center px-3.5 pb-3 pt-4">
         <TouchableOpacity
             activeOpacity={0.75}
@@ -393,6 +459,7 @@ const Postcard = ({
     isLikedByCurrentUser,
     isSaved = false,
     isOwn,
+    orbital,
     showDelete = false,
     disableAuthorPress = false,
     onDelete,
@@ -501,6 +568,10 @@ const Postcard = ({
         else openProfile(author.id);
     };
 
+    const openOrbital = () => {
+        if (orbital?.id) router.push({ pathname: '/orbital/[id]', params: { id: orbital.id } });
+    };
+
     const [confirmOpen, setConfirmOpen] = useState(false);
     const confirmDelete = () => setConfirmOpen(true);
 
@@ -520,6 +591,8 @@ const Postcard = ({
             <BlurView intensity={75} tint="dark" style={styles.blur}>
                 <PostHeader
                     author={author}
+                    orbital={orbital}
+                    onOpenOrbital={openOrbital}
                     createdAt={createdAt}
                     showDelete={showDelete}
                     disableAuthorPress={disableAuthorPress}

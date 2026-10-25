@@ -1,6 +1,7 @@
 import { authStorage } from "./auth/authStorage";
 
 export const API_URL = process.env.EXPO_PUBLIC_API_URL;
+export const PYTHON_API_URL = process.env.EXPO_PUBLIC_PYTHON_API_URL;
 export const BASE_IMAGE_URL = process.env.EXPO_PUBLIC_BASE_URL;
 
 // url for getting the display image from google drive

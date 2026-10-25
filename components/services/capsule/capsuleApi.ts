@@ -123,26 +123,36 @@ export const capsuleApi = {
   },
 
 
-  async create(file: { uri: string }, onProgress?: (pct: number) => void) {
-    try {
-      const form = new FormData();
-      form.append('media', {
-        uri: file.uri,
-        name: 'capsule.jpg',
-        type: 'image/jpeg',
-      } as unknown as Blob);
-      const { data } = await http.post(ENDPOINTS.create, form, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        withCredentials: true,
-        onUploadProgress: (e) => {
-          if (e.total) onProgress?.(Math.round((e.loaded / e.total) * 100));
-        },
-      });
-      return data;
-    } catch (error) {
-      console.error('Error creating capsule:', error);
-    }
-  },
+async create(
+  file: { uri: string; caption?: string },
+  onProgress?: (pct: number) => void,
+) {
+  try {
+    const form = new FormData();
+
+    // text field first, then the file (multer reads req.body.caption)
+    const caption = file.caption?.trim();
+    if (caption) form.append('caption', caption);
+
+    form.append('media', {
+      uri: file.uri,
+      name: 'capsule.jpg',
+      type: 'image/jpeg',
+    } as unknown as Blob);
+
+    const { data } = await http.post(ENDPOINTS.create, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      withCredentials: true,
+      onUploadProgress: (e) => {
+        if (e.total) onProgress?.(Math.round((e.loaded / e.total) * 100));
+      },
+    });
+    return data;
+  } catch (error) {
+    console.error('Error creating capsule:', error);
+    throw error; // ← important, see below
+  }
+},
 
   async remove(id: string) {
     await http.delete(ENDPOINTS.remove(id));

@@ -1,36 +1,27 @@
-// import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { API_URL, getAuthHeaders } from '@/lib/utils';
 import axios, { type Method } from 'axios';
+import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ChevronLeft, Globe, Lock } from 'lucide-react-native';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-    Alert,
-    Image,
-    KeyboardAvoidingView,
-    LayoutRectangle,
-    Platform,
-    Pressable,
-    ScrollView,
-    StyleProp,
-    Text,
-    TextInput,
-    TextStyle,
-    View,
-    ViewStyle,
-} from 'react-native';
-import Animated, {
-    Easing,
-    interpolateColor,
-    useAnimatedStyle,
-    useReducedMotion,
-    useSharedValue,
-    withDelay,
-    withTiming,
-} from 'react-native-reanimated';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { OrbitalRole, OrbitalVisibility, resolveUrl, fetchOrbitalRequests as fetchRequestsApi } from './orbitalData';
-// import {  } from './orbitalData'
+import { ArrowLeft, Camera, Clock, Globe, Lock, LogOut, Trash2, UserPlus, Users } from 'lucide-react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Alert, Image, Platform, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import ActionSheet, { SheetAction } from '@/components/ui/ActionSheet';
+import IconButton from '@/components/options/IconButton';
+import OrbitLoader from '@/components/ui/OrbitLoader';
+import Reveal from '@/components/options/Reveal';
+import { COLORS, GlassPanel, NeoView } from '@/components/ui/neo';
+import OrbitalAvatar from '@/components/profile/OrbitalAvatar';
+import EditableText from '@/components/profile/EditableText';
+import Postcard from '@/components/postCard/PostCard';
+import { toPostcardProps } from '@/components/postCard/toPostCardProps';
+import { usePostSheets } from '@/components/postCard/UsePostSheet';
+import { useCurrentUser } from '@/hooks/feed/useHomeFeed';
+import { useOpenProfile } from '@/hooks/useOpenProfile';
+import { SwipePager, useSwipeTabs } from '@/hooks/global/UseSwipeTabs';
+import { resolveUri } from '@/components/services/profileMappers';
+import { OrbitalRole, OrbitalVisibility, resolveUrl } from './orbitalData';
 
 /* ---------- types ---------- */
 type UserLite = {
@@ -50,13 +41,27 @@ type DetailOrbital = {
     visibility: OrbitalVisibility;
     memberCount: number;
     creator?: UserLite;
-    role?: OrbitalRole; // present when opened from "My orbitals"
+    role?: OrbitalRole; // present when opened from "Joined" / "Mine"
 };
 
 type ViewerStatus = 'none' | 'pending' | 'active';
 type Viewer = { status: ViewerStatus; role: OrbitalRole | null; isAdmin: boolean };
 
-type Post = { _id: string; content: string; createdAt: string; author?: UserLite };
+type OrbitalPost = {
+    id: string;
+    content: string;
+    image?: string;
+    video?: string;
+    voiceNote?: string;
+    voiceNoteDuration?: number;
+    mediaWidth?: number;
+    mediaHeight?: number;
+    createdAt?: string;
+    likesCount: number;
+    commentsCount: number;
+    likedBy: string[];
+    author: { id?: string; username: string; profilePic?: string };
+};
 type Member = { _id: string; role?: OrbitalRole; user?: UserLite };
 type JoinRequest = { _id: string; user: UserLite & { _id: string } };
 type TabKey = 'posts' | 'members' | 'requests';
@@ -66,32 +71,47 @@ type DetailResponse = Partial<DetailOrbital> & {
     viewer?: { status?: ViewerStatus; role?: OrbitalRole | null };
 };
 
+const TAB_LABELS: Record<TabKey, string> = { posts: 'Posts', members: 'Members', requests: 'Requests' };
+
 /* ---------- api ---------- */
 // getAuthHeaders may be sync (web) or async (AsyncStorage on native); await handles both
-async function api<T = any>(
-    path: string,
-    method: Method = 'get',
-    data?: unknown
-) {
-    try {
-        const headers = await getAuthHeaders();
-        return axios<T>({
-            url: `${API_URL}/api/orbital${path}`,
-            method,
-            data,
-            headers,
-            withCredentials: true,
-        });
-    } catch (err) {
-        console.log('🚨 GETAUTHHEADERS ERROR:', err);
-        throw err;
-    }
+async function api<T = any>(path: string, method: Method = 'get', data?: unknown) {
+    const headers = await getAuthHeaders();
+    return axios<T>({
+        url: `${API_URL}/api/orbital${path}`,
+        method,
+        data,
+        headers,
+        withCredentials: true,
+    });
 }
+
+// Sends the picked photo as multipart field "media", same field the create-orbital screen uses
+type PickedPhoto = { uri: string; name: string; type: string };
+async function uploadOrbitalImage(orbitalId: string, photo: PickedPhoto) {
+    const form = new FormData();
+    if (Platform.OS === 'web') {
+        const blob = await (await fetch(photo.uri)).blob();
+        form.append('media', blob, photo.name);
+    } else {
+        form.append('media', { uri: photo.uri, name: photo.name, type: photo.type } as any);
+    }
+    const headers = await getAuthHeaders();
+    return axios.patch<{ orbital?: DetailOrbital }>(`${API_URL}/api/orbital/${orbitalId}/image`, form, {
+        withCredentials: true,
+        timeout: 30000,
+        headers: { ...headers, 'Content-Type': 'multipart/form-data' },
+    });
+}
+
 const errMsg = (e: unknown, fallback: string) =>
     (axios.isAxiosError(e) ? (e.response?.data as { message?: string } | undefined)?.message : undefined) ??
     fallback;
 
-// Alert.alert does nothing on web, so fall back to window.confirm there
+// Alert.alert does nothing on web, so fall back to window.alert / window.confirm there
+const notify = (title: string, message?: string) =>
+    Platform.OS === 'web' ? window.alert(message ? `${title}\n\n${message}` : title) : Alert.alert(title, message);
+
 const confirmAsync = (title: string, message: string, confirmText: string) =>
     Platform.OS === 'web'
         ? Promise.resolve(window.confirm(`${title}\n\n${message}`))
@@ -117,304 +137,284 @@ function parseSeed(raw?: string): DetailOrbital | null {
     }
 }
 
-const initial = (s?: string) => (s?.trim()?.[0] ?? '?').toUpperCase();
-const userAvatar = (u?: UserLite) => u?.avatar || u?.profilePic;
+const idOf = (v: any): string => (typeof v === 'string' ? v : v?._id ?? v?.id ?? '');
+const userAvatar = (u?: UserLite) => resolveUrl(u?.profilePic || u?.avatar);
 
-/* ---------- fonts (load with expo-font; they fall back to system if missing) ---------- */
-const DISPLAY = { fontFamily: 'Syne-Bold' };
-const MONO = { fontFamily: 'DMMono-Medium' };
+// Orbital posts are normal Posts; this maps them to what the shared <Postcard /> expects.
+function toOrbitalPost(raw: any): OrbitalPost {
+    return {
+        id: String(raw?._id ?? raw?.id),
+        content: raw?.content ?? '',
+        image: resolveUri(raw?.image),
+        // video / voice note stay raw: Postcard adds the host itself, exactly like in the feed
+        video: raw?.video || undefined,
+        voiceNote: raw?.voiceNote || undefined,
+        voiceNoteDuration: raw?.voiceNoteDuration || undefined,
+        mediaWidth: raw?.mediaWidth,
+        mediaHeight: raw?.mediaHeight,
+        createdAt: raw?.createdAt,
+        likesCount: raw?.likesCount ?? raw?.likes?.length ?? 0,
+        commentsCount: raw?.commentsCount ?? raw?.comments?.length ?? 0,
+        likedBy: Array.isArray(raw?.likes) ? raw.likes.map(idOf) : [],
+        author: {
+            id: idOf(raw?.author) || undefined,
+            username: raw?.author?.username ?? 'Unknown',
+            profilePic: resolveUri(raw?.author?.profilePic || raw?.author?.avatar),
+        },
+    };
+}
 
-/* ---------- surfaces ---------- */
-function Glass({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+/* ---------- small pieces (same look as the profile screen) ---------- */
+function TopBar({ title, onBack }: { title: string; onBack: () => void }) {
+    const insets = useSafeAreaInsets();
     return (
-        <View className={`overflow-hidden rounded-[20px] border border-white/[0.08] bg-white/[0.04] ${className}`}>
-            <View pointerEvents="none" className="absolute top-0 left-0 right-0 h-px bg-white/[0.06]" />
+        <View className="flex-row items-center justify-between px-4 pb-2" style={{ paddingTop: insets.top + 8 }}>
+            <View className="w-11">
+                <IconButton Icon={ArrowLeft} label="Go back" onPress={onBack} />
+            </View>
+            <Text className="flex-1 px-2 text-center text-[15px] font-medium text-neutral-400" numberOfLines={1}>
+                {title}
+            </Text>
+            <View className="w-11" />
+        </View>
+    );
+}
+
+function Chip({ children }: { children: React.ReactNode }) {
+    return (
+        <View className="flex-row items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1">
             {children}
         </View>
     );
 }
-const glassInner = 'bg-white/[0.03] border border-white/[0.06] rounded-[14px]';
 
-const darkShadow: ViewStyle = {
-    shadowColor: '#000',
-    shadowOffset: { width: 5, height: 5 },
-    shadowRadius: 6,
-    shadowOpacity: 0.7,
-    elevation: Platform.OS === 'android' ? 8 : 0,
-};
-const lightShadow: ViewStyle = {
-    shadowColor: '#fff',
-    shadowOffset: { width: -3, height: -3 },
-    shadowRadius: 5,
-    shadowOpacity: 0.05,
-};
-const androidEdge: ViewStyle | null =
-    Platform.OS === 'android' ? { borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' } : null;
-
-function NeoButton({
+function ActionButton({
     label,
-    onPress,
+    Icon,
+    accent = false,
     disabled,
-    muted = false,
-    small = false,
+    onPress,
 }: {
     label: string;
-    onPress?: () => void;
+    Icon: typeof UserPlus;
+    accent?: boolean;
     disabled?: boolean;
-    muted?: boolean;
-    small?: boolean;
+    onPress: () => void;
 }) {
-    const p = useSharedValue(0);
-
-    const outer = useAnimatedStyle(() => ({
-        shadowOpacity: 0.05 * (1 - p.value),
-        transform: [{ scale: 1 - 0.03 * p.value }],
-    }));
-    const inner = useAnimatedStyle(() => ({
-        shadowOpacity: 0.7 * (1 - p.value),
-        elevation: Platform.OS === 'android' ? 8 * (1 - p.value) : 0,
-        backgroundColor: interpolateColor(p.value, [0, 1], ['#141414', '#0d0d0d']),
-    }));
-
-    return (
-        <Animated.View
-            style={[{ borderRadius: 12, backgroundColor: '#141414', opacity: disabled ? 0.5 : 1 }, lightShadow, outer]}
-        >
-            <Animated.View style={[{ borderRadius: 12 }, darkShadow, androidEdge, inner]}>
-                <Pressable
-                    disabled={disabled}
-                    onPress={onPress}
-                    onPressIn={() => {
-                        p.value = withTiming(1, { duration: 90 });
-                    }}
-                    onPressOut={() => {
-                        p.value = withTiming(0, { duration: 160 });
-                    }}
-                    className={`items-center justify-center ${small ? 'px-4 py-1.5' : 'px-6 py-2'}`}
-                >
-                    <Text
-                        className={`font-semibold ${small ? 'text-xs' : 'text-[13px]'}`}
-                        style={{ color: muted ? '#aaaaaa' : '#e8f0fe' }}
-                    >
-                        {label}
-                    </Text>
-                </Pressable>
-            </Animated.View>
-        </Animated.View>
-    );
-}
-
-function NeoCircle({ size, children }: { size: number; children?: React.ReactNode }) {
-    return (
-        <View style={[{ width: size, height: size, borderRadius: size / 2, backgroundColor: '#141414' }, lightShadow]}>
-            <View
-                style={[
-                    { width: size, height: size, borderRadius: size / 2, backgroundColor: '#141414' },
-                    darkShadow,
-                    androidEdge,
-                ]}
-                className="items-center justify-center overflow-hidden"
-            >
-                {children}
-            </View>
-        </View>
-    );
-}
-
-function Avatar({
-    uri,
-    label,
-    size = 40,
-    textSize = 14,
-    display = false,
-}: {
-    uri?: string;
-    label?: string;
-    size?: number;
-    textSize?: number;
-    display?: boolean;
-}) {
-    const [failed, setFailed] = useState(false);
-    const src = resolveUrl(uri); // rewrites http://localhost:5000 so phones can load it
-
-    if (src && !failed) {
-        return (
-            <Image
-                source={{ uri: src }}
-                onError={() => setFailed(true)}
-                style={{ width: size, height: size, borderRadius: size / 2 }}
-            />
-        );
-    }
-    return (
-        <NeoCircle size={size}>
-            <Text className="font-semibold text-[#aaaaaa]" style={[{ fontSize: textSize }, display && DISPLAY]}>
-                {initial(label)}
-            </Text>
-        </NeoCircle>
-    );
-}
-
-function BackButton() {
-    const router = useRouter();
     return (
         <Pressable
-            onPress={() => (router.canGoBack() ? router.back() : router.replace('/orbital'))}
-            hitSlop={8}
+            disabled={disabled}
+            onPress={onPress}
             accessibilityRole="button"
-            accessibilityLabel="Go back"
-            className="self-start"
+            accessibilityLabel={label}
+            style={{ opacity: disabled ? 0.5 : 1 }}
         >
-            <NeoCircle size={42}>
-                <ChevronLeft size={22} color="#e8f0fe" />
-            </NeoCircle>
+            {({ pressed }) => (
+                <NeoView accent={accent} radius={22} pressed={pressed} style={{ height: 44 }}>
+                    <View className="flex-row items-center gap-2">
+                        <Icon size={16} color={accent ? '#fff' : COLORS.text} strokeWidth={2} />
+                        <Text className="text-[15px] font-semibold text-white">{label}</Text>
+                    </View>
+                </NeoView>
+            )}
         </Pressable>
     );
 }
 
-const Empty = ({ text }: { text: string }) => (
-    <Text className="text-[13px] text-[#777777] text-center py-10">{text}</Text>
-);
+function OrbitalTabs({
+    tabs,
+    active,
+    onChange,
+    counts,
+}: {
+    tabs: TabKey[];
+    active: TabKey;
+    onChange: (tab: TabKey) => void;
+    counts: Partial<Record<TabKey, number>>;
+}) {
+    const [width, setWidth] = useState(0);
+    const index = useSharedValue(0);
+    const tabWidth = width / tabs.length;
 
-// defined outside the page so it isn't re-created (and re-mounted) on every render
-function Shell({ children }: { children: React.ReactNode }) {
+    useEffect(() => {
+        index.value = withTiming(Math.max(0, tabs.indexOf(active)), {
+            duration: 240,
+            easing: Easing.out(Easing.cubic),
+        });
+    }, [active, tabs, index]);
+
+    const slide = useAnimatedStyle(() => ({ transform: [{ translateX: index.value * tabWidth }] }));
+
     return (
-        <SafeAreaView className="flex-1 bg-black">
-            <View className="flex-1 px-4 py-4 gap-6">
-                <BackButton />
-                {children}
+        <GlassPanel radius={22} style={{ padding: 4 }}>
+            <View className="flex-row" onLayout={(e) => setWidth(e.nativeEvent.layout.width)}>
+                {width > 0 && (
+                    <Animated.View style={[{ position: 'absolute', top: 0, bottom: 0, left: 0, width: tabWidth }, slide]}>
+                        <View className="h-full w-full rounded-[18px] bg-white/10" />
+                    </Animated.View>
+                )}
+                {tabs.map((key) => {
+                    const isActive = key === active;
+                    return (
+                        <Pressable
+                            key={key}
+                            onPress={() => onChange(key)}
+                            accessibilityRole="tab"
+                            accessibilityState={{ selected: isActive }}
+                            className="flex-1 flex-row items-center justify-center gap-1 py-2.5"
+                        >
+                            <Text className="text-sm font-bold text-white">{counts[key] ?? 0}</Text>
+                            <Text
+                                numberOfLines={1}
+                                className={`text-sm ${isActive ? 'font-medium text-white' : 'text-neutral-500'}`}
+                            >
+                                {TAB_LABELS[key]}
+                            </Text>
+                        </Pressable>
+                    );
+                })}
             </View>
-        </SafeAreaView>
+        </GlassPanel>
     );
 }
 
-/* ---------- motion helpers ---------- */
-function Reveal({ index, children }: { index: number; children: React.ReactNode }) {
-    const reduce = useReducedMotion();
-    const v = useSharedValue(reduce ? 1 : 0);
-
-    useEffect(() => {
-        if (!reduce) {
-            v.value = withDelay(index * 80, withTiming(1, { duration: 500, easing: Easing.out(Easing.quad) }));
-        }
-    }, []);
-
-    const style = useAnimatedStyle(() => ({
-        opacity: v.value,
-        transform: [{ translateY: (1 - v.value) * 14 }],
-    }));
-    return <Animated.View style={style}>{children}</Animated.View>;
+function Face({ uri, label }: { uri?: string; label?: string }) {
+    return (
+        <View className="h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-neutral-800">
+            {uri ? (
+                <Image source={{ uri }} className="h-full w-full" resizeMode="cover" />
+            ) : (
+                <Text className="text-base font-semibold text-white">{(label?.trim()?.[0] ?? '?').toUpperCase()}</Text>
+            )}
+        </View>
+    );
 }
 
-function TabFade({ tab, children }: { tab: string; children: React.ReactNode }) {
-    const reduce = useReducedMotion();
-    const v = useSharedValue(1);
-    const mounted = useRef(false);
-
-    useEffect(() => {
-        if (!mounted.current) {
-            mounted.current = true;
-            return;
-        }
-        if (reduce) return;
-        v.value = 0;
-        v.value = withTiming(1, { duration: 250, easing: Easing.out(Easing.quad) });
-    }, [tab]);
-
-    const style = useAnimatedStyle(() => ({
-        opacity: v.value,
-        transform: [{ translateY: (1 - v.value) * 8 }],
-    }));
-    return <Animated.View style={style}>{children}</Animated.View>;
-}
-
-/* ---------- click-to-edit text ---------- */
-type InlineEditProps = {
-    value: string;
-    onSave: (value: string) => Promise<void>;
-    editable: boolean;
-    multiline?: boolean;
-    minLength?: number;
-    maxLength?: number;
-    placeholder?: string;
-    textClass: string;
-    textStyle?: StyleProp<TextStyle>;
-    header?: boolean;
-};
-
-function InlineEdit({
-    value,
-    onSave,
-    editable,
-    multiline = false,
-    minLength = 0,
-    maxLength,
-    placeholder,
-    textClass,
-    textStyle,
-    header = false,
-}: InlineEditProps) {
-    const [editing, setEditing] = useState(false);
-    const [draft, setDraft] = useState(value);
-    const [saving, setSaving] = useState(false);
-    const [error, setError] = useState('');
-
-    const open = () => {
-        if (!editable) return;
-        setDraft(value);
-        setError('');
-        setEditing(true);
-    };
-
-    const cancel = () => {
-        setEditing(false);
-        setError('');
-    };
-
-    const save = async () => {
-        const next = draft.trim();
-        if (next.length < minLength) return setError(`Use at least ${minLength} characters`);
-        if (next === value) return cancel();
-        setSaving(true);
-        try {
-            await onSave(next);
-            setEditing(false);
-        } catch (e) {
-            setError(errMsg(e, 'Could not save'));
-        } finally {
-            setSaving(false);
-        }
-    };
-
-    if (!editing) {
-        return (
-            <Pressable onPress={open} disabled={!editable}>
-                <Text className={textClass} style={textStyle} accessibilityRole={header ? 'header' : undefined}>
-                    {value || placeholder}
-                </Text>
-            </Pressable>
-        );
+function MembersList({ members, onOpen }: { members: Member[]; onOpen: (userId: string) => void }) {
+    if (members.length === 0) {
+        return <Text className="mt-4 text-center text-sm text-neutral-500">No members to show.</Text>;
     }
+    return (
+        <GlassPanel radius={24} style={{ padding: 8 }}>
+            {members.map((m) => (
+                <Pressable
+                    key={m._id}
+                    onPress={() => m.user?._id && onOpen(m.user._id)}
+                    accessibilityRole="button"
+                >
+                    {({ pressed }) => (
+                        <View className={`flex-row items-center gap-3 rounded-[18px] p-2.5 ${pressed ? 'bg-white/5' : ''}`}>
+                            <Face uri={userAvatar(m.user)} label={m.user?.username} />
+                            <Text className="flex-1 text-base font-semibold text-white" numberOfLines={1}>
+                                {m.user?.username}
+                            </Text>
+                            {(m.role === 'admin' || m.role === 'creator') && (
+                                <View className="rounded-full border border-white/10 px-2.5 py-0.5">
+                                    <Text className="text-[11px] text-neutral-400">{m.role}</Text>
+                                </View>
+                            )}
+                        </View>
+                    )}
+                </Pressable>
+            ))}
+        </GlassPanel>
+    );
+}
+
+function RequestsList({
+    requests,
+    busy,
+    onOpen,
+    onApprove,
+    onReject,
+}: {
+    requests: JoinRequest[];
+    busy: boolean;
+    onOpen: (userId: string) => void;
+    onApprove: (userId: string) => void;
+    onReject: (userId: string) => void;
+}) {
+    if (requests.length === 0) {
+        return <Text className="mt-4 text-center text-sm text-neutral-500">No pending requests.</Text>;
+    }
+    return (
+        <GlassPanel radius={24} style={{ padding: 8 }}>
+            {requests.map((r) => (
+                <View key={r._id} className="flex-row items-center gap-3 rounded-[18px] p-2.5">
+                    <Pressable
+                        onPress={() => onOpen(r.user._id)}
+                        accessibilityRole="button"
+                        className="flex-1 flex-row items-center gap-3"
+                    >
+                        <Face uri={userAvatar(r.user)} label={r.user?.username} />
+                        <Text className="flex-1 text-base font-semibold text-white" numberOfLines={1}>
+                            {r.user?.username}
+                        </Text>
+                    </Pressable>
+                    <Pressable
+                        disabled={busy}
+                        onPress={() => onApprove(r.user._id)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Approve ${r.user?.username}`}
+                        className="rounded-full bg-neutral-100 px-4 py-2 active:opacity-80"
+                        style={{ opacity: busy ? 0.5 : 1 }}
+                    >
+                        <Text className="text-[13px] font-semibold text-black">Approve</Text>
+                    </Pressable>
+                    <Pressable
+                        disabled={busy}
+                        onPress={() => onReject(r.user._id)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Reject ${r.user?.username}`}
+                        className="rounded-full border border-white/10 bg-white/[0.06] px-4 py-2 active:opacity-80"
+                        style={{ opacity: busy ? 0.5 : 1 }}
+                    >
+                        <Text className="text-[13px] font-semibold text-white/70">Reject</Text>
+                    </Pressable>
+                </View>
+            ))}
+        </GlassPanel>
+    );
+}
+
+/** Shown instead of the tabs until you are a member (same card as the profile's private notice). */
+function LockedNotice({
+    isPrivate,
+    isPending,
+    busy,
+    onJoin,
+}: {
+    isPrivate: boolean;
+    isPending: boolean;
+    busy: boolean;
+    onJoin: () => void;
+}) {
+    const Icon = isPrivate ? Lock : Globe;
+    const title = isPrivate ? 'This orbital is private' : 'Join this orbital';
+    const body = isPending
+        ? "Your request is on its way. You'll see its posts and members once an admin approves."
+        : isPrivate
+            ? 'Request to join to see its posts and members.'
+            : 'Join to see its posts and members.';
 
     return (
-        <View>
-            <TextInput
-                value={draft}
-                onChangeText={setDraft}
-                maxLength={maxLength}
-                multiline={multiline}
-                autoFocus
-                selectionColor="#ffffff"
-                returnKeyType={multiline ? 'default' : 'done'}
-                onSubmitEditing={multiline ? undefined : save}
-                className={`${textClass} w-full p-0 pb-1 border-b border-white/20 focus:border-white/50`}
-                style={[textStyle, multiline && { minHeight: 72, textAlignVertical: 'top' }]}
-            />
-            <View className="flex-row items-center gap-2 mt-2">
-                <NeoButton small label={saving ? 'Saving...' : 'Save'} onPress={save} disabled={saving} />
-                <NeoButton small muted label="Cancel" onPress={cancel} />
-                {!!error && <Text className="text-xs text-[#c98a8a] flex-1">{error}</Text>}
+        <View className="items-center rounded-3xl border border-white/10 bg-white/[0.04] px-6 py-10">
+            <View className="h-14 w-14 items-center justify-center rounded-full border border-white/10 bg-white/[0.06]">
+                <Icon size={22} color="rgba(255,255,255,0.85)" />
             </View>
+            <Text className="mt-5 text-[17px] font-semibold text-white">{title}</Text>
+            <Text className="mt-2 text-center text-[14px] leading-[21px] text-white/50">{body}</Text>
+            {!isPending && (
+                <Pressable
+                    onPress={onJoin}
+                    disabled={busy}
+                    accessibilityRole="button"
+                    className="mt-6 rounded-full bg-neutral-100 px-6 py-3 active:opacity-80"
+                    style={{ opacity: busy ? 0.5 : 1 }}
+                >
+                    <Text className="text-[14px] font-semibold text-black">{isPrivate ? 'Request to join' : 'Join'}</Text>
+                </Pressable>
+            )}
         </View>
     );
 }
@@ -423,38 +423,10 @@ function InlineEdit({
 export default function OrbitalDetail() {
     const { id: orbitalId, data: seedRaw } = useLocalSearchParams<{ id: string; data?: string }>();
     const router = useRouter();
-    const reduce = useReducedMotion();
-    console.log('OrbitalDetail', orbitalId);
-
-    const fetchOrbitalMembers = useCallback(async () => {
-        if (!orbitalId) return;
-        try {
-            const res = await axios.get(`${API_URL}/api/orbital/${orbitalId}/members`);
-            console.log('fetchOrbitalMembers', res?.data);
-        } catch (error) {
-            console.error('Error fetching orbital members:', error);
-            console.log('Orbital ID:', orbital?._id, 'Orbital Data:', orbital, 'API_URL:', API_URL);
-        }
-    }, [orbitalId]);
-
-    const fetchOrbitalRequests = useCallback(async () => {
-        if (!orbitalId) return [];
-        try {
-            return await fetchRequestsApi(orbitalId);
-        } catch (err: any) {
-            console.error('Error fetching orbital requests:', err);
-            console.log(err.code, err.response?.status, err.response?.data);
-            return [];
-        }
-    }, [orbitalId]);
-
-
-
-    useEffect(() => {
-        fetchOrbitalMembers();
-        fetchOrbitalRequests();
-    }, [fetchOrbitalMembers, fetchOrbitalRequests, orbitalId]);
-
+    const openProfile = useOpenProfile();
+    const currentUser = useCurrentUser();
+    const meId = String(currentUser?.id ?? (currentUser as any)?._id ?? '');
+    const { openComments, openShare, commentsCountFor, sheets } = usePostSheets(currentUser);
 
     // the list passes the orbital along, so the page renders instantly and refreshes in the background
     const seed = useMemo(() => parseSeed(seedRaw), [seedRaw]);
@@ -465,125 +437,108 @@ export default function OrbitalDetail() {
             ? { status: 'active', role: seed.role, isAdmin: seed.role === 'admin' || seed.role === 'creator' }
             : { status: 'none', role: null, isAdmin: false }
     );
-    // from "My orbitals" we already know the role; otherwise wait for the server before showing Join/Exit
+    // from "Joined" / "Mine" we already know the role; otherwise wait for the server before showing Join/Exit
     const [viewerReady, setViewerReady] = useState(Boolean(seed?.role));
     const [loadError, setLoadError] = useState('');
 
-    const [tab, setTab] = useState<TabKey>('posts');
-    const [posts, setPosts] = useState<Post[]>([]);
+    const [posts, setPosts] = useState<OrbitalPost[]>([]);
     const [members, setMembers] = useState<Member[]>([]);
     const [requests, setRequests] = useState<JoinRequest[]>([]);
-    const [tabLoading, setTabLoading] = useState(false);
+    const [contentLoading, setContentLoading] = useState(false);
+    const [refreshing, setRefreshing] = useState(false);
 
     const [busy, setBusy] = useState(false);
+    const [imageBusy, setImageBusy] = useState(false);
     const [actionError, setActionError] = useState('');
+    const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
 
     const ready = Boolean(orbital);
     const isMember = viewer.status === 'active';
     const isPending = viewer.status === 'pending';
     const isPrivate = orbital?.visibility === 'private';
     const isCreator = viewer.role === 'creator';
+    const showRequests = isPrivate && viewer.isAdmin; // only admins of a private orbital see join requests
     const VisIcon = isPrivate ? Lock : Globe;
+    const orbitalImage = orbital?.image || orbital?.avatar;
 
-    const tabs: { key: TabKey; label: string; count?: number }[] = [
-        { key: 'posts', label: 'Posts' },
-        { key: 'members', label: 'Members', count: orbital?.memberCount },
-        ...(isPrivate && viewer.isAdmin
-            ? [{ key: 'requests' as const, label: 'Requests', count: requests.length }]
-            : []),
-    ];
-
-    /* ---------- tab underline: transform-only, so it never triggers layout ---------- */
-    const tabLayouts = useRef<Partial<Record<TabKey, LayoutRectangle>>>({});
-    const underlineInit = useRef(false);
-    const ux = useSharedValue(0);
-    const us = useSharedValue(0);
-
-    const moveUnderline = useCallback(
-        (key: TabKey) => {
-            const l = tabLayouts.current[key];
-            if (!l) return;
-            const centerX = l.x + l.width / 2 - 0.5; // 1px bar scaled to the tab width
-            if (!underlineInit.current || reduce) {
-                ux.value = centerX;
-                us.value = l.width;
-                underlineInit.current = true;
-            } else {
-                const cfg = { duration: 350, easing: Easing.out(Easing.cubic) };
-                ux.value = withTiming(centerX, cfg);
-                us.value = withTiming(l.width, cfg);
-            }
-        },
-        [reduce]
+    const TAB_KEYS = useMemo<TabKey[]>(
+        () => ['posts', 'members', ...(showRequests ? (['requests'] as const) : [])],
+        [showRequests]
     );
-
-    useEffect(() => {
-        moveUnderline(tab);
-    }, [tab, tabs.length, moveUnderline]);
-
-    const underlineStyle = useAnimatedStyle(() => ({
-        transform: [{ translateX: ux.value }, { scaleX: us.value }],
-    }));
+    const swipe = useSwipeTabs({ count: TAB_KEYS.length });
+    const tab = TAB_KEYS[swipe.index] ?? 'posts';
 
     /* ---------- data ---------- */
-
-
-    useEffect(() => {
-        if (!orbitalId) {
-            console.log('NO ORBITAL ID');
-            return;
+    const loadDetail = useCallback(async () => {
+        if (!orbitalId) return;
+        try {
+            const { data } = await api<DetailResponse>(`/${orbitalId}`);
+            const o = (data.orbital ?? data) as DetailOrbital;
+            // merge, so fields the detail endpoint omits keep the list's values
+            setOrbital((prev) => ({ ...(prev ?? {}), ...o }) as DetailOrbital);
+            setViewer((prev) => {
+                const role = data.viewer?.role ?? o.role ?? prev.role;
+                return {
+                    status: data.viewer?.status ?? (role ? 'active' : 'none'),
+                    role,
+                    isAdmin: role === 'admin' || role === 'creator',
+                };
+            });
+            setViewerReady(true);
+            setLoadError('');
+        } catch (e) {
+            setLoadError(errMsg(e, 'Could not load this orbital'));
         }
-
-        let cancelled = false;
-        api<DetailResponse>(`/${orbitalId}`)
-            .then(({ data }) => {
-                if (cancelled) return;
-                const o = (data.orbital ?? data) as DetailOrbital;
-                // merge, so fields the detail endpoint omits (e.g. creator) keep the list's values
-                setOrbital((prev) => ({ ...(prev ?? {}), ...o }) as DetailOrbital);
-                setViewer((prev) => {
-                    const role = data.viewer?.role ?? o.role ?? prev.role;
-                    return {
-                        status: data.viewer?.status ?? (role ? 'active' : 'none'),
-                        role,
-                        isAdmin: role === 'admin' || role === 'creator',
-                    };
-                });
-                setViewerReady(true);
-                setLoadError('');
-            })
-            .catch((e) => !cancelled && setLoadError(errMsg(e, 'Could not load this orbital')));
-        return () => {
-            cancelled = true;
-        };
     }, [orbitalId]);
 
     useEffect(() => {
-        if (!ready || !isMember || !orbitalId) return;
+        loadDetail();
+    }, [loadDetail]);
+
+    // posts and members are members-only; requests are admins-only (the server enforces both)
+    const fetchContent = useCallback(async () => {
+        if (!orbitalId) return { posts: [], members: [], requests: [] };
+        const [p, m, r] = await Promise.all([
+            api(`/${orbitalId}/posts`).then(({ data }) => (data.posts ?? []) as any[]).catch(() => [] as any[]),
+            api(`/${orbitalId}/members`).then(({ data }) => (data.members ?? []) as Member[]).catch(() => [] as Member[]),
+            showRequests
+                ? api(`/${orbitalId}/requests`).then(({ data }) => (data.requests ?? []) as JoinRequest[]).catch(() => [] as JoinRequest[])
+                : Promise.resolve([] as JoinRequest[]),
+        ]);
+        return { posts: p.map(toOrbitalPost), members: m, requests: r };
+    }, [orbitalId, showRequests]);
+
+    useEffect(() => {
+        if (!ready || !isMember) return;
         let cancelled = false;
-        setTabLoading(true);
-        api(`/${orbitalId}/${tab}`)
-            .then(({ data }) => {
+        setContentLoading(true);
+        fetchContent()
+            .then((r) => {
                 if (cancelled) return;
-                if (tab === 'posts') setPosts(data.posts ?? []);
-                if (tab === 'members') setMembers(data.members ?? []);
-                if (tab === 'requests') setRequests(data.requests ?? []);
+                setPosts(r.posts);
+                setMembers(r.members);
+                setRequests(r.requests);
             })
-            .catch(() => { })
-            .finally(() => !cancelled && setTabLoading(false));
+            .finally(() => !cancelled && setContentLoading(false));
         return () => {
             cancelled = true;
         };
-    }, [tab, orbitalId, ready, isMember]);
+    }, [ready, isMember, fetchContent]);
 
-    // the requests badge needs the list as soon as an admin lands on a private orbital
-    useEffect(() => {
-        if (ready && isPrivate && viewer.isAdmin && orbitalId) {
-            api(`/${orbitalId}/requests`)
-                .then(({ data }) => setRequests(data.requests ?? []))
-                .catch(() => { });
+    const refresh = useCallback(async () => {
+        setRefreshing(true);
+        try {
+            await loadDetail();
+            if (isMember) {
+                const r = await fetchContent();
+                setPosts(r.posts);
+                setMembers(r.members);
+                setRequests(r.requests);
+            }
+        } finally {
+            setRefreshing(false);
         }
-    }, [ready, isPrivate, viewer.isAdmin, orbitalId]);
+    }, [loadDetail, fetchContent, isMember]);
 
     /* ---------- actions ---------- */
     const run = async (fn: () => Promise<void>) => {
@@ -601,18 +556,13 @@ export default function OrbitalDetail() {
     const bumpMembers = (n: number) =>
         setOrbital((o) => (o ? { ...o, memberCount: Math.max(0, o.memberCount + n) } : o));
 
+    const goBack = () => (router.canGoBack() ? router.back() : router.replace('/orbital'));
+
     const handleJoin = () =>
         run(async () => {
-            try {
-                const { data } = await api<{ status: ViewerStatus }>(`/${orbitalId}/join`, 'post');
-                setViewer((v) => ({ ...v, status: data.status }));
-                if (data.status === 'active') bumpMembers(1);
-            } catch (e) {
-                console.error('JOIN ERROR:', e);
-                console.error('STATUS:', (e as any).response?.status);
-                console.error('DATA:', (e as any).response?.data);
-                throw e;
-            }
+            const { data } = await api<{ status: ViewerStatus }>(`/${orbitalId}/join`, 'post');
+            setViewer((v) => ({ ...v, status: data.status }));
+            if (data.status === 'active') bumpMembers(1);
         });
 
     const handleCancelRequest = () =>
@@ -621,19 +571,25 @@ export default function OrbitalDetail() {
             setViewer((v) => ({ ...v, status: 'none' }));
         });
 
-    const handleLeave = () =>
+    const handleLeave = async () => {
+        const ok = await confirmAsync('Exit orbital?', "You'll stop seeing its posts and members.", 'Exit');
+        if (!ok) return;
         run(async () => {
             await api(`/${orbitalId}/leave`, 'delete');
             setViewer({ status: 'none', role: null, isAdmin: false });
-            setTab('posts');
+            setPosts([]);
+            setMembers([]);
+            setRequests([]);
             bumpMembers(-1);
         });
+    };
 
     const handleApprove = (userId: string) =>
         run(async () => {
             await api(`/${orbitalId}/requests/${userId}/approve`, 'patch');
             setRequests((r) => r.filter((x) => x.user._id !== userId));
             bumpMembers(1);
+            fetchContent().then((r) => setMembers(r.members));
         });
 
     const handleReject = (userId: string) =>
@@ -651,266 +607,266 @@ export default function OrbitalDetail() {
         if (!ok) return;
         run(async () => {
             await api(`/deleteorbital/${orbitalId}`, 'delete');
-            router.canGoBack() ? router.back() : router.replace('/orbital');
+            goBack();
         });
     };
 
-    const handleMessage = () => {
-        // TODO: open the orbital's chat
+    const deletePost = async (id: string) => {
+        const prev = posts;
+        setPosts((list) => list.filter((p) => p.id !== id));
+        try {
+            await api(`/${orbitalId}/posts/${id}`, 'delete');
+        } catch (e) {
+            setPosts(prev);
+            notify('Something went wrong', errMsg(e, "Couldn't delete that post."));
+        }
     };
 
-    const saveField = (field: 'name' | 'description') => async (value: string) => {
-        await api(`/${orbitalId}`, 'patch', { [field]: value });
-        setOrbital((o) => (o ? { ...o, [field]: value } : o));
+    const saveName = async (value: string) => {
+        if (value.length < 3) return notify('Name too short', 'Use at least 3 characters.');
+        try {
+            await api(`/${orbitalId}`, 'patch', { name: value });
+            setOrbital((o) => (o ? { ...o, name: value } : o));
+        } catch (e) {
+            notify('Something went wrong', errMsg(e, "Couldn't update the name."));
+        }
     };
+
+    const saveDescription = async (value: string) => {
+        try {
+            await api(`/${orbitalId}`, 'patch', { description: value });
+            setOrbital((o) => (o ? { ...o, description: value } : o));
+        } catch (e) {
+            notify('Something went wrong', errMsg(e, "Couldn't update the description."));
+        }
+    };
+
+    const changeImage = async () => {
+        if (!orbitalId) return;
+        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!permission.granted) {
+            notify('Photo access needed', 'Allow photo access in Settings to change the orbital photo.');
+            return;
+        }
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ['images'],
+            allowsEditing: true,
+            aspect: [1, 1],
+            quality: 0.8,
+        });
+        if (result.canceled || !result.assets[0]) return;
+
+        const asset = result.assets[0];
+        const ext = asset.uri.split('.').pop()?.toLowerCase() ?? 'jpg';
+        const photo: PickedPhoto = {
+            uri: asset.uri,
+            name: asset.fileName ?? `orbital.${ext}`,
+            type: asset.mimeType ?? (ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg'),
+        };
+
+        setImageBusy(true);
+        setActionError('');
+        try {
+            const { data } = await uploadOrbitalImage(orbitalId, photo);
+            const next = data.orbital?.image;
+            setOrbital((o) => (o ? { ...o, image: next ?? o.image } : o));
+        } catch (e) {
+            setActionError(errMsg(e, "Couldn't upload the photo."));
+        } finally {
+            setImageBusy(false);
+        }
+    };
+
+    const removeImage = async () => {
+        const ok = await confirmAsync('Remove orbital photo?', 'The orbital goes back to its letter icon.', 'Remove');
+        if (!ok) return;
+        setImageBusy(true);
+        setActionError('');
+        try {
+            await api(`/${orbitalId}/image`, 'delete');
+            setOrbital((o) => (o ? { ...o, image: '', avatar: undefined } : o));
+        } catch (e) {
+            setActionError(errMsg(e, "Couldn't remove the photo."));
+        } finally {
+            setImageBusy(false);
+        }
+    };
+
+    const avatarActions: SheetAction[] = [
+        { label: orbitalImage ? 'Change photo' : 'Add photo', Icon: Camera, onPress: changeImage },
+        ...(orbitalImage ? [{ label: 'Remove photo', Icon: Trash2, onPress: removeImage, destructive: true }] : []),
+    ];
 
     /* ---------- render ---------- */
     if (!orbital) {
         return (
-            <Shell>
-                <Glass className="p-8">
-                    <Text className="text-center text-[#777777]">{loadError || 'Loading orbital...'}</Text>
-                </Glass>
-            </Shell>
+            <View className="flex-1 bg-black">
+                <TopBar title="Orbital" onBack={goBack} />
+                {!!loadError && <Text className="mt-10 px-6 text-center text-sm text-neutral-500">{loadError}</Text>}
+                <OrbitLoader visible={!loadError} />
+            </View>
         );
     }
 
-    const renderContent = () => {
-        if (!viewerReady) return <Empty text="Loading..." />;
-        if (!isMember) {
-            return (
-                <Empty
-                    text={
-                        isPrivate
-                            ? 'This orbital is private. Request to join to see its posts and members.'
-                            : 'Join this orbital to see its posts and members.'
-                    }
-                />
-            );
-        }
-        if (tabLoading) return <Empty text="Loading..." />;
-
-        if (tab === 'posts') {
-            if (!posts.length) return <Empty text="No posts yet." />;
-            return (
-                <View className="gap-3">
-                    {posts.map((p) => (
-                        <View key={p._id} className={`${glassInner} p-4`}>
-                            <View className="flex-row items-center gap-3 mb-2">
-                                <Avatar uri={userAvatar(p.author)} label={p.author?.username} size={32} textSize={12} />
-                                <View>
-                                    <Text className="text-[13px] font-semibold text-[#e8f0fe]">{p.author?.username}</Text>
-                                    <Text className="text-[11px] text-[#777777]">{new Date(p.createdAt).toLocaleDateString()}</Text>
-                                </View>
-                            </View>
-                            <Text className="text-[13px] leading-[21px] text-[#cccccc]">{p.content}</Text>
-                        </View>
-                    ))}
-                </View>
-            );
-        }
-
-        if (tab === 'members') {
-            if (!members.length) return <Empty text="No members to show." />;
-            return (
-                <View className="flex-row flex-wrap gap-3">
-                    {members.map((m) => (
-                        <View key={m._id} className={`${glassInner} p-3 flex-row items-center gap-3 w-full sm:w-[48.5%]`}>
-                            <Avatar uri={userAvatar(m.user)} label={m.user?.username} />
-                            <View className="flex-1 min-w-0">
-                                <Text numberOfLines={1} className="text-[13px] font-semibold text-[#e8f0fe]">
-                                    {m.user?.username}
-                                </Text>
-                                <Text numberOfLines={1} className="text-[11px] text-[#777777]">
-                                    {m.user?.fullName}
-                                </Text>
-                            </View>
-                            {(m.role === 'admin' || m.role === 'creator') && (
-                                <View className="border border-white/10 rounded-full px-2 py-0.5">
-                                    <Text className="text-[11px] text-[#aaaaaa]">{m.role}</Text>
-                                </View>
-                            )}
-                        </View>
-                    ))}
-                </View>
-            );
-        }
-
-        if (!requests.length) return <Empty text="No pending requests." />;
-        return (
-            <View className="gap-3">
-                {requests.map((r) => (
-                    <View key={r._id} className={`${glassInner} p-3 flex-row items-center gap-3`}>
-                        <Avatar uri={userAvatar(r.user)} label={r.user?.username} />
-                        <View className="flex-1 min-w-0">
-                            <Text numberOfLines={1} className="text-[13px] font-semibold text-[#e8f0fe]">
-                                {r.user?.username}
-                            </Text>
-                            <Text numberOfLines={1} className="text-[11px] text-[#777777]">
-                                {r.user?.fullName}
-                            </Text>
-                        </View>
-                        <NeoButton small label="Approve" disabled={busy} onPress={() => handleApprove(r.user._id)} />
-                        <NeoButton small muted label="Reject" disabled={busy} onPress={() => handleReject(r.user._id)} />
-                    </View>
-                ))}
-            </View>
-        );
-    };
+    const creator = orbital.creator;
+    const creatorPic = resolveUrl(creator?.profilePic);
 
     return (
-        <SafeAreaView className="flex-1 bg-black">
-            <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-                <ScrollView
-                    className="flex-1"
-                    contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 16 }}
-                    keyboardShouldPersistTaps="handled"
-                    showsVerticalScrollIndicator={false}
-                >
-                    <View className="w-full max-w-3xl self-center gap-6">
-                        <BackButton />
+        <View className="flex-1 bg-black">
+            <TopBar title={`${isPrivate ? 'Private' : 'Open'} orbital`} onBack={goBack} />
 
-                        {/* header */}
-                        <Reveal index={0}>
-                            <Glass className="p-6">
-                                <View className="flex-col sm:flex-row gap-5">
-                                    <View>
-                                        <Avatar
-                                            uri={orbital.image ?? orbital.avatar}
-                                            label={orbital.name}
-                                            size={88}
-                                            textSize={34}
-                                            display
-                                        />
-                                    </View>
+            <ScrollView
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{ paddingBottom: 48 }}
+                keyboardShouldPersistTaps="handled"
+                refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor="#ffffff" />}
+            >
+                <Reveal>
+                    <OrbitalAvatar
+                        uri={resolveUrl(orbitalImage)}
+                        name={orbital.name}
+                        editable={viewer.isAdmin}
+                        uploading={imageBusy}
+                        onPress={() => setAvatarMenuOpen(true)}
+                    />
+                </Reveal>
 
-                                    <View className="flex-1 min-w-0">
-                                        <InlineEdit
-                                            header
-                                            value={orbital.name}
-                                            onSave={saveField('name')}
-                                            editable={viewer.isAdmin}
-                                            minLength={3}
-                                            maxLength={50}
-                                            textClass="text-[26px] sm:text-[30px] leading-[32px] text-[#e8f0fe]"
-                                            textStyle={DISPLAY}
-                                        />
-                                        <InlineEdit
-                                            value={orbital.description ?? ''}
-                                            onSave={saveField('description')}
-                                            editable={viewer.isAdmin}
-                                            multiline
-                                            maxLength={500}
-                                            placeholder={viewer.isAdmin ? 'Tap to add a description' : 'No description yet.'}
-                                            textClass="text-[13px] leading-[21px] text-[#aaaaaa] mt-1"
-                                        />
+                <Reveal delay={120} className="mt-1">
+                    <View className="items-center px-6">
+                        <EditableText
+                            value={orbital.name}
+                            editable={viewer.isAdmin}
+                            maxLength={50}
+                            onSave={saveName}
+                            textClassName="text-center text-[26px] font-bold text-white"
+                        />
+                        <View className="mt-2 w-full">
+                            <EditableText
+                                multiline
+                                allowEmpty
+                                value={orbital.description ?? ''}
+                                editable={viewer.isAdmin}
+                                maxLength={500}
+                                placeholder="Add a description"
+                                onSave={saveDescription}
+                                textClassName="text-center text-sm leading-5 text-neutral-300"
+                            />
+                        </View>
+                    </View>
 
-                                        <View className="flex-row flex-wrap items-center gap-x-4 gap-y-2 mt-3">
-                                            <View className="flex-row items-center gap-[6px] border border-white/10 rounded-full px-2.5 py-0.5">
-                                                <VisIcon size={11} color="#aaaaaa" />
-                                                <Text className="text-[12px] text-[#aaaaaa]">{orbital.visibility}</Text>
-                                            </View>
+                    <View className="mt-3 flex-row flex-wrap items-center justify-center gap-2 px-6">
+                        <Chip>
+                            <VisIcon size={12} color="#a3a3a3" />
+                            <Text className="text-[12px] text-neutral-400">{isPrivate ? 'Private' : 'Open'}</Text>
+                        </Chip>
+                        <Chip>
+                            <Users size={12} color="#a3a3a3" />
+                            <Text className="text-[12px] text-neutral-400">{orbital.memberCount} members</Text>
+                        </Chip>
+                        {!!creator && (
+                            <Chip>
+                                {!!creatorPic && (
+                                    <Image source={{ uri: creatorPic }} style={{ width: 16, height: 16, borderRadius: 8 }} />
+                                )}
+                                <Text className="text-[12px] text-neutral-400">by @{creator.username || 'unknown'}</Text>
+                            </Chip>
+                        )}
+                    </View>
 
-                                            {!!orbital.creator && (
-                                                <>
-                                                    <Text className="text-[12px] text-[#aaaaaa]">Creator:</Text>
-                                                    <View className="flex-row items-center gap-[4px] border border-white/10 rounded-full px-2.5 py-0.5">
-                                                        {!!resolveUrl(orbital.creator.profilePic) && (
-                                                            <Image
-                                                                source={{ uri: resolveUrl(orbital.creator.profilePic) }}
-                                                                style={{ width: 16, height: 16, borderRadius: 8 }}
-                                                            />
-                                                        )}
-                                                        <Text className="text-[12px] text-[#aaaaaa]">
-                                                            {orbital.creator.username || 'Unknown'}
-                                                        </Text>
-                                                    </View>
-                                                </>
-                                            )}
-                                        </View>
-                                    </View>
+                    {viewerReady && (
+                        <View className="mt-5 px-5">
+                            {/* only non-members can join */}
+                            {!isMember && !isPending && (
+                                <ActionButton
+                                    accent
+                                    Icon={UserPlus}
+                                    label={isPrivate ? 'Request to join' : 'Join'}
+                                    disabled={busy}
+                                    onPress={handleJoin}
+                                />
+                            )}
+                            {/* pending users can cancel their request */}
+                            {isPending && (
+                                <ActionButton Icon={Clock} label="Requested · Cancel" disabled={busy} onPress={handleCancelRequest} />
+                            )}
+                            {/* only the creator can destroy */}
+                            {isCreator && <ActionButton Icon={Trash2} label="Destroy orbital" disabled={busy} onPress={destroyOrbital} />}
+                            {/* admins and normal members can leave */}
+                            {isMember && !isCreator && (
+                                <ActionButton Icon={LogOut} label="Exit orbital" disabled={busy} onPress={handleLeave} />
+                            )}
+                        </View>
+                    )}
+
+                    {!!actionError && <Text className="mt-3 px-6 text-center text-xs text-[#c98a8a]">{actionError}</Text>}
+                    {!!loadError && <Text className="mt-3 px-6 text-center text-xs text-[#c98a8a]">{loadError}</Text>}
+                </Reveal>
+
+                <Reveal delay={220} className="mt-6 gap-4 px-5">
+                    {!viewerReady ? (
+                        <Text className="mt-4 text-center text-sm text-neutral-500">Loading...</Text>
+                    ) : !isMember ? (
+                        <LockedNotice isPrivate={isPrivate} isPending={isPending} busy={busy} onJoin={handleJoin} />
+                    ) : (
+                        <>
+                            <OrbitalTabs
+                                tabs={TAB_KEYS}
+                                active={tab}
+                                onChange={(key) => swipe.goTo(TAB_KEYS.indexOf(key))}
+                                counts={{ posts: posts.length, members: orbital.memberCount, requests: requests.length }}
+                            />
+
+                            <SwipePager swipe={swipe} autoHeight minPageHeight={320}>
+                                <View key="posts" className="gap-4">
+                                    {posts.length === 0 ? (
+                                        <Text className="mt-4 text-center text-sm text-neutral-500">
+                                            {contentLoading ? 'Loading...' : 'No posts yet.'}
+                                        </Text>
+                                    ) : (
+                                        posts.map((post) => {
+                                            const own = !!meId && post.author.id === meId;
+                                            return (
+                                                <Postcard
+                                                    key={post.id}
+                                                    {...toPostcardProps(
+                                                        { ...post, isLikedByCurrentUser: !!meId && post.likedBy.includes(meId) } as any,
+                                                        post.author
+                                                    )}
+                                                    commentsCount={commentsCountFor(post.id, post.commentsCount)}
+                                                    isOwn={own}
+                                                    showDelete={own || viewer.role === 'admin'}
+                                                    onDelete={deletePost}
+                                                    onPressComments={openComments}
+                                                    onClickShare={openShare}
+                                                />
+                                            );
+                                        })
+                                    )}
                                 </View>
 
-                                {viewerReady && (
-                                    <View className="flex-row flex-wrap items-center gap-3 mt-6">
-                                        {/* only non-members can join */}
-                                        {!isMember && !isPending && (
-                                            <NeoButton
-                                                label={isPrivate ? 'Request to join' : 'Join'}
-                                                disabled={busy}
-                                                onPress={handleJoin}
-                                            />
-                                        )}
+                                <View key="members" className="gap-4">
+                                    <MembersList members={members} onOpen={openProfile} />
+                                </View>
 
-                                        {/* pending users can cancel their request */}
-                                        {isPending && (
-                                            <NeoButton muted label="Requested · Cancel" disabled={busy} onPress={handleCancelRequest} />
-                                        )}
-
-                                        {/* only the creator can destroy */}
-                                        {isCreator && (
-                                            <NeoButton muted label="Destroy Orbital" disabled={busy} onPress={destroyOrbital} />
-                                        )}
-
-                                        {/* admins and normal members can leave */}
-                                        {isMember && !isCreator && (
-                                            <NeoButton muted label="Exit Orbital" disabled={busy} onPress={handleLeave} />
-                                        )}
-
-                                        {/* only members can message */}
-                                        {isMember && <NeoButton label="Message" onPress={handleMessage} />}
-                                    </View>
-                                )}
-
-                                {!!actionError && <Text className="text-xs text-[#c98a8a] mt-3">{actionError}</Text>}
-                                {!!loadError && <Text className="text-xs text-[#c98a8a] mt-3">{loadError}</Text>}
-                            </Glass>
-                        </Reveal>
-
-                        {/* tabs */}
-                        <Reveal index={1}>
-                            <View className="border-b border-white/[0.08]">
-                                <ScrollView horizontal showsHorizontalScrollIndicator={false} bounces={false}>
-                                    <View className="flex-row gap-8 px-2">
-                                        {tabs.map((t) => (
-                                            <Pressable
-                                                key={t.key}
-                                                onPress={() => setTab(t.key)}
-                                                onLayout={(e) => {
-                                                    tabLayouts.current[t.key] = e.nativeEvent.layout;
-                                                    if (t.key === tab) moveUnderline(tab);
-                                                }}
-                                                className="py-3"
-                                            >
-                                                <Text
-                                                    className="text-[14px]"
-                                                    style={[MONO, { color: tab === t.key ? '#ffffff' : '#777777', fontWeight: '600' }]}
-                                                >
-                                                    {`[ ${t.label}${t.count !== undefined ? ` ${t.count}` : ''} ]`}
-                                                </Text>
-                                            </Pressable>
-                                        ))}
-                                        <Animated.View
-                                            pointerEvents="none"
-                                            style={[
-                                                { position: 'absolute', bottom: 0, left: 0, height: 2, width: 1, backgroundColor: '#fff' },
-                                                underlineStyle,
-                                            ]}
+                                {showRequests && (
+                                    <View key="requests" className="gap-4">
+                                        <RequestsList
+                                            requests={requests}
+                                            busy={busy}
+                                            onOpen={openProfile}
+                                            onApprove={handleApprove}
+                                            onReject={handleReject}
                                         />
                                     </View>
-                                </ScrollView>
-                            </View>
-                        </Reveal>
+                                )}
+                            </SwipePager>
+                        </>
+                    )}
+                </Reveal>
+            </ScrollView>
 
-                        {/* content */}
-                        <Reveal index={2}>
-                            <Glass className="p-5">
-                                <TabFade tab={tab}>{renderContent()}</TabFade>
-                            </Glass>
-                        </Reveal>
-                    </View>
-                </ScrollView>
-            </KeyboardAvoidingView>
-        </SafeAreaView>
+            <ActionSheet visible={avatarMenuOpen && viewer.isAdmin} onClose={() => setAvatarMenuOpen(false)} actions={avatarActions} />
+            {sheets}
+        </View>
     );
 }

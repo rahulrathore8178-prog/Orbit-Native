@@ -29,6 +29,9 @@ const timeAgo = (iso?: string) => {
     return new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
 }
 
+// orbital photos are absolute urls (Drive) or server paths; phones can't reach localhost
+const orbitalImg = (u?: string) => (u ? withHost(u)?.replace(/^https?:\/\/localhost:5000/, API_URL) : undefined)
+
 const compact = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`)
 
 /* ───────────── Media ───────────── */
@@ -102,6 +105,11 @@ export const SharedPostBubble = memo(function SharedPostBubble({ postId, initial
         () => router.push({ pathname: '/profile/savedPosts/[postId]', params: { postId } }),
         [postId],
     )
+    const orbitalId = post?.orbital?.id
+    const openOrbital = useCallback(
+        () => orbitalId && router.push({ pathname: '/orbital/[id]', params: { id: orbitalId } }),
+        [orbitalId],
+    )
 
     const bubbleWidth = Math.min(width * 0.72, 300)
     const mediaWidth = bubbleWidth - 16 // 8px padding each side
@@ -137,6 +145,8 @@ export const SharedPostBubble = memo(function SharedPostBubble({ postId, initial
     const { author } = post
     const showStats = post.likesCount !== undefined || post.commentsCount !== undefined
     const avatarUri = withHost(author?.profilePic)
+    const orbital = post.orbital
+    const orbitalUri = orbitalImg(orbital?.image)
 
     return (
         <Animated.View style={[{ width: bubbleWidth }, pressStyle]}>
@@ -148,8 +158,37 @@ export const SharedPostBubble = memo(function SharedPostBubble({ postId, initial
                 onPressOut={() => (scale.value = withSpring(1, SPRING))}
                 className={shell}
             >
-                {/* Author */}
-                {author ? (
+                {/* Orbital first (when the post belongs to one), with the person who posted it nested under it */}
+                {orbital ? (
+                    <View className="px-1 pb-2 pt-0.5">
+                        <Pressable onPress={openOrbital} disabled={!orbitalId} className="flex-row items-center">
+                            {orbitalUri ? (
+                                <Image source={{ uri: orbitalUri }} className="h-7 w-7 rounded-full border border-white/20 bg-white/10" />
+                            ) : (
+                                <View className="h-7 w-7 items-center justify-center rounded-full border border-white/20 bg-white/10">
+                                    <Text className="text-[11px] font-bold text-white">{orbital.name.charAt(0).toUpperCase()}</Text>
+                                </View>
+                            )}
+                            <View className="ml-2 flex-1">
+                                <Text numberOfLines={1} className="text-[13px] font-semibold text-white">{orbital.name}</Text>
+                                <Text className="text-[10px] text-white/45">Orbital</Text>
+                            </View>
+                        </Pressable>
+                        {author ? (
+                            <View className="ml-[13px] mt-1.5 flex-row items-center border-l border-white/20 pl-3">
+                                {avatarUri ? (
+                                    <Image source={{ uri: avatarUri }} className="h-5 w-5 rounded-full border border-white/20 bg-white/10" />
+                                ) : (
+                                    <View className="h-5 w-5 items-center justify-center rounded-full border border-white/20 bg-white/10">
+                                        <Text className="text-[9px] font-bold text-white">{author.username?.charAt(0).toUpperCase()}</Text>
+                                    </View>
+                                )}
+                                <Text numberOfLines={1} className="ml-2 flex-1 text-[12px] font-medium text-white/80">{author.username}</Text>
+                                {post.createdAt ? <Text className="text-[11px] text-white/45">{timeAgo(post.createdAt)}</Text> : null}
+                            </View>
+                        ) : null}
+                    </View>
+                ) : author ? (
                     <View className="flex-row items-center px-1 pb-2 pt-0.5">
                         {avatarUri ? (
                             <Image source={{ uri: avatarUri }} className="h-7 w-7 rounded-full border border-white/20 bg-white/10" />

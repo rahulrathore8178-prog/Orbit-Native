@@ -23,10 +23,10 @@ import {
 } from '@/hooks/feed/useHomeFeed';
 import { useOrbitalFeed } from '@/hooks/feed/useOrbitalFeed';
 import { toPostcardProps, type PostcardProps } from '@/components/services/feed/postUtils';
-import { usePathname, useRouter } from 'expo-router';
+import { useFocusEffect, usePathname, useRouter } from 'expo-router';
 import { MenuIcon } from 'lucide-react-native';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import Reanimated, { useAnimatedStyle } from 'react-native-reanimated';
 import { BlurTargetView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -35,6 +35,7 @@ import { getDisplayImageUrl, resolveImg } from '../../lib/utils';
 import { useDrawer } from '@/components/sideDrawer/DrawerContext';
 import { GestureDetector } from 'react-native-gesture-handler';
 import NotificationBell from '@/components/notifications/NotificationBell';
+import { usePostViews, VIEW_COUNT_CONFIG } from '@/hooks/feed/usePostViews';
 
 /* ------------------------------ header -------------------------------- */
 
@@ -51,54 +52,55 @@ type HeaderProps = {
 
 const HomeHeader = ({ blurTarget, topInset, onLayoutHeight, onOpenMenu, tabs, currentUser }: HeaderProps) => {
     console.log('currentUserProps', getDisplayImageUrl(currentUser?.profilePic));
-return (
-    <View className="absolute inset-x-0 top-0 z-20" onLayout={(e) => onLayoutHeight(e.nativeEvent.layout.height)}>
-        <FrostedGlass blurTarget={blurTarget} intensity={80} className="rounded-b-[28px] border-b">
-            <View style={{ paddingTop: topInset }}>
-                <View className="flex-row items-center px-4 pb-3 pt-2">
-                    {/* <Pressable onPress={onOpenMenu} hitSlop={8} accessibilityLabel="Open menu" className="w-9">
+    return (
+        <View className="absolute inset-x-0 top-0 z-20" onLayout={(e) => onLayoutHeight(e.nativeEvent.layout.height)}>
+            <FrostedGlass blurTarget={blurTarget} intensity={80} className="rounded-b-[28px] border-b">
+                <View style={{ paddingTop: topInset }}>
+                    <View className="flex-row items-center px-4 pb-3 pt-2">
+                        {/* <Pressable onPress={onOpenMenu} hitSlop={8} accessibilityLabel="Open menu" className="w-9">
                         <MenuIcon color="white" size={32} />
                     </Pressable> */}
-                    <Pressable
-                        onPress={onOpenMenu} 
-                        accessibilityLabel="Open profile"
-                        className="w-10 h-10 rounded-full overflow-hidden"
-                    >
-                        {currentUser?.profilePic ? (
-                            <Image
-                                source={{ uri: getDisplayImageUrl(currentUser.profilePic) }}
-                                className="w-full h-full"
-                                resizeMode="cover"
-                            />
-                        ) : (
-                            <View className="w-full h-full bg-gray-500" />
-                        )}
-                    </Pressable>
-
-                    <View className="flex-1 py-2">
-                        <Text
-                            className="text-center text-2xl font-bold tracking-widest text-white/90"
-                            style={{
-                                textShadowColor: 'rgba(255,255,255,0.45)',
-                                textShadowOffset: { width: 0, height: 0 },
-                                textShadowRadius: 12,
-                            }}
+                        <Pressable
+                            onPress={onOpenMenu}
+                            accessibilityLabel="Open profile"
+                            className="w-10 h-10 rounded-full overflow-hidden"
                         >
-                            Orbit
-                        </Text>
+                            {currentUser?.profilePic ? (
+                                <Image
+                                    source={{ uri: getDisplayImageUrl(currentUser.profilePic) }}
+                                    className="w-full h-full"
+                                    resizeMode="cover"
+                                />
+                            ) : (
+                                <View className="w-full h-full bg-gray-500" />
+                            )}
+                        </Pressable>
+
+                        <View className="flex-1 py-2">
+                            <Text
+                                className="text-center text-2xl font-bold tracking-widest text-white/90"
+                                style={{
+                                    textShadowColor: 'rgba(255,255,255,0.45)',
+                                    textShadowOffset: { width: 0, height: 0 },
+                                    textShadowRadius: 12,
+                                }}
+                            >
+                                Orbit
+                            </Text>
+                        </View>
+
+                        <View className="w-9" />
+                        <NotificationBell />
                     </View>
 
-                    <View className="w-9" />
-                    <NotificationBell />
+                    <View className="items-center px-4 pb-3">
+                        <FeedTabs position={tabs.position} active={tabs.tab} onSelect={tabs.goTo} />
+                    </View>
                 </View>
-
-                <View className="items-center px-4 pb-3">
-                    <FeedTabs position={tabs.position} active={tabs.tab} onSelect={tabs.goTo} />
-                </View>
-            </View>
-        </FrostedGlass>
-    </View>
-)}
+            </FrostedGlass>
+        </View>
+    )
+}
 
 /* ------------------------------ screen -------------------------------- */
 
@@ -108,16 +110,13 @@ export default function HomeScreen() {
     const blurTarget = useRef<View | null>(null);
     const pathname = usePathname();
 
-    useEffect(() => {
-        console.log('HOME PATH:', pathname);
-    }, []);
-
     // data
     const currentUser = useCurrentUser();
     const feed = useHomeFeed();
     const orbitalFeed = useOrbitalFeed<PostcardProps>(toPostcardProps);
     const capsules = useCapsules();
     const share = useShare();
+    const hasMoreRef = useRef(false);
 
     // ui state
     const [drawerOpen, setDrawerOpen] = useState(false);
@@ -125,6 +124,13 @@ export default function HomeScreen() {
     const [commentsPostId, setCommentsPostId] = useState<string | null>(null);
     const [viewer, setViewer] = useState<{ userId: string; origin: Rect } | null>(null);
     const [headerH, setHeaderH] = useState(insets.top + 64); // estimate until onLayout fires
+    const [isFocused, setIsFocused] = useState(true);
+    useFocusEffect(
+        useCallback(() => {
+            setIsFocused(true);
+            return () => setIsFocused(false);
+        }, []),
+    );
 
     // Own visible-id per list: both lists stay mounted, so a shared one would let
     // the off-screen page steal autoplay.
@@ -147,6 +153,25 @@ export default function HomeScreen() {
         profilePic: getDisplayImageUrl(currentUser?.profilePic),
     };
 
+    const TAB_BAR_AREA = insets.bottom + 72; // floating tab bar height + margin; adjust to your FloatingTabBar
+
+    const postViews = usePostViews({
+        enabled:
+            isFocused && !drawerOpen && !commentsPostId && !share.shareId && !viewer,
+        safeTop: headerH,
+        safeBottom: TAB_BAR_AREA,
+    });
+
+    const feedPairs = useRef([
+        { viewabilityConfig: VIEWABILITY_CONFIG, onViewableItemsChanged: yours.onViewableItemsChanged },
+        { viewabilityConfig: VIEW_COUNT_CONFIG, onViewableItemsChanged: postViews.onViewableItemsChanged },
+    ]).current;
+
+    const orbitalPairs = useRef([
+        { viewabilityConfig: VIEWABILITY_CONFIG, onViewableItemsChanged: orbitals.onViewableItemsChanged },
+        { viewabilityConfig: VIEW_COUNT_CONFIG, onViewableItemsChanged: postViews.onViewableItemsChanged },
+    ]).current;
+
     const handleSelect = (key: DrawerItemKey) => {
         setDrawerOpen(false);
         if (key === 'orbitals') {
@@ -161,26 +186,43 @@ export default function HomeScreen() {
 
     const renderItem = useCallback(
         ({ item }: { item: PostcardProps }) => (
-            <Postcard
-                {...item}
-                isVisible={tabs.tab === 0 && item.id === yours.visibleId}
-                onPressComments={() => setCommentsPostId(item.id)}
-                onClickShare={share.open}
-            />
+            <View ref={(n) => postViews.setNode(item.id, n)} collapsable={false}>
+                <Postcard
+                    {...item}
+                    isVisible={tabs.tab === 0 && item.id === yours.visibleId}
+                    onPressComments={() => setCommentsPostId(item.id)}
+                    onClickShare={share.open}
+                />
+            </View>
         ),
-        [yours.visibleId, tabs.tab, share.open],
+        [yours.visibleId, tabs.tab, share.open, postViews.setNode],
     );
 
     const renderOrbitalItem = useCallback(
         ({ item }: { item: PostcardProps }) => (
-            <Postcard
-                {...item}
-                isVisible={tabs.tab === 1 && item.id === orbitals.visibleId}
-                onPressComments={() => setCommentsPostId(item.id)}
-                onClickShare={share.open}
-            />
+            <View ref={(n) => postViews.setNode(item.id, n)} collapsable={false}>
+                <Postcard
+                    {...item}
+                    isVisible={tabs.tab === 1 && item.id === orbitals.visibleId}
+                    onPressComments={() => setCommentsPostId(item.id)}
+                    onClickShare={share.open}
+                />
+            </View>
         ),
-        [orbitals.visibleId, tabs.tab, share.open],
+        [orbitals.visibleId, tabs.tab, share.open, postViews.setNode],
+    );
+
+    const feedFooter = useMemo(
+        () => (
+            <View className="items-center py-6">
+                {feed.loadingMore ? (
+                    <ActivityIndicator color="#8a8a8a" />
+                ) : !feed.hasMore && feed.posts.length > 0 ? (
+                    <Text className="text-xs text-white/40">You&apos;re all caught up</Text>
+                ) : null}
+            </View>
+        ),
+        [feed.loadingMore, feed.hasMore, feed.posts.length],
     );
 
     return (
@@ -195,8 +237,6 @@ export default function HomeScreen() {
                                 data={feed.posts}
                                 keyExtractor={keyExtractor}
                                 renderItem={renderItem}
-                                viewabilityConfig={VIEWABILITY_CONFIG}
-                                onViewableItemsChanged={yours.onViewableItemsChanged}
                                 extraData={`${yours.visibleId}-${tabs.tab}`}
                                 showsVerticalScrollIndicator={false}
                                 refreshing={feed.refreshing}
@@ -204,6 +244,13 @@ export default function HomeScreen() {
                                 progressViewOffset={feedTop}
                                 onScroll={onScroll}
                                 scrollEventThrottle={16}
+                                onEndReached={feed.loadMore}
+                                onEndReachedThreshold={1.5}
+                                ListFooterComponent={feedFooter}
+                                initialNumToRender={3}
+                                maxToRenderPerBatch={4}
+                                windowSize={7}
+                                viewabilityConfigCallbackPairs={feedPairs}
                                 contentContainerStyle={{ paddingTop: feedTop + 12, paddingBottom: 12 }}
                                 ListEmptyComponent={
                                     feed.loading ? null : <Text className="mt-8 text-center text-white/60">No posts yet.</Text>
@@ -217,8 +264,7 @@ export default function HomeScreen() {
                                 topInset={headerH}
                                 onBrowse={() => router.push('/orbital')}
                                 listProps={{
-                                    viewabilityConfig: VIEWABILITY_CONFIG,
-                                    onViewableItemsChanged: orbitals.onViewableItemsChanged,
+                                    viewabilityConfigCallbackPairs: orbitalPairs,
                                     extraData: `${orbitals.visibleId}-${tabs.tab}`,
                                     showsVerticalScrollIndicator: false,
                                     onScroll,

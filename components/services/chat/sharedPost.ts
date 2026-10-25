@@ -8,6 +8,8 @@ const POST_URL = (id: string) => `${API_URL}/api/community/posts/${id}`
 
 export type SharedAuthor = { _id?: string; username: string; profilePic?: string }
 
+export type SharedOrbital = { id?: string; name: string; image?: string }
+
 export type SharedPostData = {
     id: string
     author?: SharedAuthor
@@ -23,7 +25,10 @@ export type SharedPostData = {
     commentsCount?: number
     likedBy?: string[]
     isLikedByCurrentUser?: boolean
-    orbital?: any
+    /** Set when the post belongs to an orbital. */
+    orbital?: SharedOrbital
+    /** The post references an orbital but only by id, so it must be fetched to learn the name. */
+    orbitalUnresolved?: boolean
 }
 
 // An unpopulated author (just an id string) is treated as "missing" so the post gets fetched.
@@ -31,6 +36,10 @@ const asAuthor = (a: any): SharedAuthor | undefined =>
     a && typeof a === 'object' && (a.username || a.name)
         ? { _id: a._id ?? a.id, username: a.username ?? a.name, profilePic: a.profilePic }
         : undefined
+
+// A populated orbital has a name; a bare id string means it still has to be fetched.
+const asOrbital = (o: any): SharedOrbital | undefined =>
+    o && typeof o === 'object' && o.name ? { id: o._id ?? o.id, name: o.name, image: o.image || undefined } : undefined
 
 export const normalizePost = (p: any): SharedPostData => {
     const likes: any[] | undefined = Array.isArray(p?.likes) ? p.likes : undefined
@@ -52,7 +61,8 @@ export const normalizePost = (p: any): SharedPostData => {
             comments?.reduce((n, c) => n + 1 + (c?.replies?.length ?? 0), 0),
         likedBy: likes?.map(String),
         isLikedByCurrentUser: p?.isLikedByCurrentUser,
-        orbital: p?.orbital,
+        orbital: asOrbital(p?.orbital),
+        orbitalUnresolved: !!p?.orbital && !asOrbital(p?.orbital),
     }
 }
 
@@ -86,10 +96,10 @@ export function useSharedPost(id: string, initial?: SharedPostData, enabled = tr
     const [failed, setFailed] = useState(false)
 
     useEffect(() => {
-        if (initial && !cache.get(id)?.author) cache.set(id, initial)
+        if (initial && (!cache.get(id)?.author || cache.get(id)?.orbitalUnresolved)) cache.set(id, initial)
         const have = cache.get(id)
         if (have && have !== post) setPost(have)
-        if (!enabled || have?.author || done.has(id)) return
+        if (!enabled || (have?.author && !have.orbitalUnresolved) || done.has(id)) return
 
         let alive = true
         fetchPost(id)

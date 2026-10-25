@@ -6,7 +6,8 @@
     "orientation": "portrait",
     "icon": "./assets/images/Orbit-Logo.png",
     "scheme": "orbitnative",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#000000",
     "android": {
       "package": "com.orb8.app",
       "adaptiveIcon": {
@@ -53,6 +54,7 @@
           }
         }
       ],
+      ["expo-system-ui"],
       [
         "expo-location",
         {
