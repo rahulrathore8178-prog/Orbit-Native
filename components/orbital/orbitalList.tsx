@@ -26,6 +26,7 @@ import OrbitIcon from './orbitIcon';
 import { MyOrbital, Orbital, useOrbitals } from './orbitalData';
 import OrbitalCard from './orbitals';
 import { SwipePager, useSwipeTabs, useTabIndicatorStyle, useTabLabelStyle } from '@/hooks/global/UseSwipeTabs';
+import CreateOrbital from './CreateOrbital';
 
 // Order matters: Joined (0), All (1), Mine (2)
 const TABS = ['Joined', 'All', 'Mine'] as const;
@@ -283,6 +284,7 @@ export default function OrbitalsScreen({
                 <OrbitalList {...listProps} data={all} emptyText="No orbitals to show yet." />
                 <OrbitalList {...listProps} data={mine} emptyText="You haven't created any orbitals yet." />
             </SwipePager>
+            <CreateOrbital showButton={swipe.index === 2} bottomOffset={insets.bottom + 24} onCreated={() => refresh()} />
         </View>
     );
 } 

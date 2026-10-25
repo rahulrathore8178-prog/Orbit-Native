@@ -23,6 +23,7 @@ type OrbitalBase = {
     image?: string;
     memberCount: number;
     visibility: OrbitalVisibility;
+    requests: number | null;
 };
 
 /** Item from the "all orbitals" endpoint */
@@ -57,6 +58,12 @@ export const fetchMyOrbitals = async (): Promise<MyOrbital[]> => {
     const res = await api.get('/api/orbital/mine');
     return res?.data?.orbitals || [];
 };
+
+export const fetchOrbitalRequests = async (orbitalId: string): Promise<Orbital[]> => {
+    const res = await api.get(`/api/orbital/${orbitalId}/requests`);
+    console.log('fetchOrbitalRequests', res?.data);
+    return res?.data?.orbitals || [];
+} 
 
 export function useOrbitals() {
     const [all, setAll] = useState<Orbital[]>([]);

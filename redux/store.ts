@@ -1,11 +1,14 @@
 import { combineReducers, configureStore, UnknownAction } from '@reduxjs/toolkit';
 import { TypedUseSelectorHook, useDispatch, useSelector } from 'react-redux';
 
-import authReducer, { signOut } from './slice/authSlice'; // adjust path if your slices live elsewhere
-import chatReducer from './slice/chatSlice';               // keep your existing imports as they are
+import authReducer, { signOut } from './slice/authSlice';
+import chatReducer from './slice/chatSlice';
 import profileReducer from './slice/profileSlice';
 import friendsReducer from './slice/friends';
-import discoverReducer from './slice/discover';
+import discoverReducer from './slice/discoverSlice';
+import savedPostsReducer from './slice/savedPostsSlice'; 
+import createPostReducer from './slice/createPost/createPostSlice';
+import notificationsReducer from './slice/notifications/notificationsSlice';
 
 const appReducer = combineReducers({
   auth: authReducer,
@@ -13,6 +16,9 @@ const appReducer = combineReducers({
   profile: profileReducer,
   friends: friendsReducer,
   discover: discoverReducer,
+  savedPosts: savedPostsReducer,
+  createPost: createPostReducer,
+  notifications: notificationsReducer,
 });
 
 // On logout, wipe every slice so the next user never sees the previous user's chats, friends or profile.

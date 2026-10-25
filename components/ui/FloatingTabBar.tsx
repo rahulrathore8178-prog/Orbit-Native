@@ -9,7 +9,7 @@ const PILL_WIDTH = 70;
 const PILL_HEIGHT = 50;
 
 export function FloatingTabBar(props: any) {
-  const { state, descriptors, navigation } = props;
+    const { state, descriptors, emitter, navigateToTab } = props;
     const { width } = useWindowDimensions();
     const insets = useSafeAreaInsets();
 
@@ -85,15 +85,17 @@ export function FloatingTabBar(props: any) {
                     const color = focused ? '#ffffff' : 'rgba(255,255,255,0.45)';
 
                     const onPress = () => {
-                        const event = navigation.emit({
+                        const event = emitter?.emit({
                             type: 'tabPress',
                             target: route.key,
                             canPreventDefault: true,
                         });
-                        if (!focused && !event.defaultPrevented) {
-                            navigation.navigate(route.name, route.params);
+
+                        if (!focused && !event?.defaultPrevented) {
+                            navigateToTab(route.key);
                         }
                     };
+
 
                     return (
                         <Pressable

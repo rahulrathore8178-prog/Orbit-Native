@@ -33,11 +33,13 @@ type Props = {
     onCancelReply: () => void;
     /** resolve with an error message, or null on success */
     onSubmit: (draft: Draft) => Promise<string | null>;
+    /** resolve with an error message, or null on success */
+    onReply: (c: Comment, draft: Draft) => Promise<string | null>;
     keyboardVisible: boolean;
     bottomInset: number;
 };
 
-export default function CommentComposer({ replyingTo, onCancelReply, onSubmit, keyboardVisible, bottomInset }: Props) {
+export default function CommentComposer({ replyingTo, onCancelReply, onSubmit, onReply, keyboardVisible, bottomInset }: Props) {
     const inputRef = useRef<TextInput>(null);
     const [text, setText] = useState('');
     const [attachment, setAttachment] = useState<Attachment | null>(null);
@@ -154,7 +156,28 @@ export default function CommentComposer({ replyingTo, onCancelReply, onSubmit, k
         if (!canSend) return;
         setSending(true);
         setError('');
-        const err = await onSubmit({ content: text.trim(), attachment });
+
+        const draft = { content: text.trim(), attachment };
+        const err = replyingTo
+            ? await onReply(replyingTo, draft)   // saved as a reply in the thread
+            : await onSubmit(draft);             // saved as a new top-level comment
+
+        setSending(false);
+        if (err) {
+            setError(err);
+        } else {
+            setText('');
+            setAttachment(null);
+            setPanel('none');
+            if (replyingTo) onCancelReply();
+        }
+    };
+
+    const commentReply = async (c: Comment) => {
+        if (!canSend) return;
+        setSending(true);
+        setError('');
+        const err = await onReply(c, { content: text.trim(), attachment });
         setSending(false);
         if (err) {
             setError(err);

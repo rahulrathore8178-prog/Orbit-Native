@@ -1,55 +1,76 @@
-import { useCallback, useState } from 'react';
-import { useWindowDimensions } from 'react-native';
-import { cancelAnimation, useSharedValue, withSpring } from 'react-native-reanimated';
-import { useHorizontalSwipe } from './useHorizontalSwipe';
+import { useCallback, useMemo, useState } from 'react'
+import { useWindowDimensions } from 'react-native'
+import { Gesture } from 'react-native-gesture-handler'
+import { runOnJS, useSharedValue, withSpring } from 'react-native-reanimated'
+import { DRAWER_SPRING, useDrawer } from '@/components/sideDrawer/DrawerContext'
 
-export type FeedTab = 0 | 1;
-export const FEED_TABS = ['Your feed', 'Orbitals'] as const;
+export const FEED_TABS = ['Your feed', 'Orbitals'] as const
+export type FeedTab = 0 | 1
 
-// Critically damped + clamped: settles fast, never bounces past the page.
-const SPRING = { damping: 28, stiffness: 240, mass: 0.8, overshootClamping: true };
-const EDGE_RESISTANCE = 0.25; // how much the pager follows the finger past the first/last page
-const FLICK_MS = 220; // how far ahead (in ms of finger speed) we project the release point
-
-/** Follows the finger 1:1 inside [0, 1], with resistance outside it. */
-const rubberBand = (x: number) => (x < 0 ? x * EDGE_RESISTANCE : x > 1 ? 1 + (x - 1) * EDGE_RESISTANCE : x);
-const clamp = (x: number, min: number, max: number) => Math.min(max, Math.max(min, x));
+const TAB_SPRING = { damping: 26, stiffness: 260, mass: 0.9, overshootClamping: true }
+const SWITCH_RATIO = 0.2 // fraction of screen width to commit a tab switch
+const FLING = 500 // px/s
 
 /**
- * State for the two home tabs.
- *  - `position` (shared value): 0 = Your feed, 1 = Orbitals, fractional while the finger is down.
- *    Everything visual (pager, pill, labels, tray fade) is derived from it on the UI thread.
- *  - `tab`: the committed tab as React state, for things that aren't animated (a11y, pointerEvents).
+ * Single pan gesture, finger-tracked:
+ *  - tab 0 + drag right -> the drawer follows your finger
+ *  - tab 0 + drag left  -> pager follows your finger to tab 1
+ *  - tab 1 + drag right -> pager follows your finger back to tab 0
+ * Wrap your pager in <GestureDetector gesture={tabs.gesture}>.
  */
 export function useFeedTabs() {
-    const { width } = useWindowDimensions();
-    const [tab, setTab] = useState<FeedTab>(0);
-    const position = useSharedValue(0);
-    const gestureStart = useSharedValue(0);
+    const { width } = useWindowDimensions()
+    const { progress: drawer, drawerW } = useDrawer()
+    const position = useSharedValue(0) // 0 = Your feed, 1 = Orbitals
+    const startTab = useSharedValue(0)
+    const [tab, setTab] = useState<FeedTab>(0)
 
     const goTo = useCallback(
-        (to: FeedTab, velocity = 0) => {
-            setTab(to);
-            position.set(withSpring(to, { ...SPRING, velocity }));
+        (next: number) => {
+            const n = (next ? 1 : 0) as FeedTab
+            setTab(n)
+            position.value = withSpring(n, TAB_SPRING)
         },
         [position]
-    );
+    )
 
-    const swipe = useHorizontalSwipe({
-        blockTermination: true,
-        // Finger down: stop any running animation so you can catch the pager mid-flight.
-        onStart: () => {
-            cancelAnimation(position);
-            gestureStart.set(position.get());
-        },
-        onDrag: (dx) => position.set(rubberBand(gestureStart.get() - dx / width)),
-        onRelease: ({ vx }) => {
-            const projected = position.get() - (vx * FLICK_MS) / width;
-            const to: FeedTab = projected > 0.5 ? 1 : 0;
-            // hand the finger's speed to the spring so the motion continues, not restarts
-            goTo(to, clamp((-vx * 1000) / width, -8, 8));
-        },
-    });
+    const gesture = useMemo(
+        () =>
+            Gesture.Pan()
+                .activeOffsetX([-10, 10])
+                .failOffsetY([-14, 14])
+                .onStart(() => {
+                    startTab.value = Math.round(position.value)
+                })
+                .onUpdate((e) => {
+                    const dx = e.translationX
+                    if (startTab.value === 0 && dx > 0) {
+                        drawer.value = Math.min(1, dx / drawerW)
+                        position.value = 0
+                    } else {
+                        drawer.value = 0
+                        position.value = Math.min(1, Math.max(0, startTab.value - dx / width))
+                    }
+                })
+                .onEnd((e) => {
+                    const dx = e.translationX
+                    const vx = e.velocityX
 
-    return { tab, position, goTo, panHandlers: swipe.panHandlers };
+                    if (startTab.value === 0 && dx > 0) {
+                        const open = vx > FLING || (vx > -FLING && drawer.value > 0.4)
+                        drawer.value = withSpring(open ? 1 : 0, { ...DRAWER_SPRING, velocity: vx / drawerW })
+                        return
+                    }
+
+                    const t = startTab.value
+                    const commit =
+                        t === 0 ? dx < -width * SWITCH_RATIO || vx < -FLING : dx > width * SWITCH_RATIO || vx > FLING
+                    const target = commit ? 1 - t : t
+                    position.value = withSpring(target, { ...TAB_SPRING, velocity: -vx / width })
+                    runOnJS(setTab)(target as FeedTab)
+                }),
+        [drawer, drawerW, position, startTab, width]
+    )
+
+    return { tab, position, gesture, goTo }
 }

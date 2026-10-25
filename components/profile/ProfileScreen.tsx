@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Alert, Linking, RefreshControl, ScrollView, Share, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { Ban, Camera, Trash2 } from 'lucide-react-native';
@@ -8,14 +8,20 @@ import Reveal from '@/components/options/Reveal';
 import { useOpenProfile } from '@/hooks/useOpenProfile';
 import { useProfile } from '@/hooks/useProfile';
 import { useProfileActions } from '@/hooks/useProfileActions';
-import { ProfilePost, ProfileTabKey } from '@/components/profile/profile';
+import { Friend, ProfilePost, ProfileTabKey } from '@/components/profile/profile';
 import FriendsList from './FriendsList';
 import OrbitalAvatar from './OrbitalAvatar';
-import PostCard from './PostCard';
+import Postcard from '../postCard/PostCard';
 import ProfileActions from './ProfileActions';
 import ProfileIdentity from './ProfileIdentity';
 import ProfileTabs from './ProfileTabs';
 import ProfileTopBar from './ProfileTopBar';
+import SwipeTabContent from '../ui/profile/SwipeTabContent';
+import { SwipePager, useSwipeTabs } from '@/hooks/global/UseSwipeTabs';
+import { usePostSheets } from '../postCard/UsePostSheet';
+import { toPostcardProps } from '../postCard/toPostCardProps';
+import { useCurrentUser } from '@/hooks/feed/useHomeFeed';
+import PrivateNotice from './PrivateNotice';
 
 type Props = {
     /** Omit for your own profile (the tab). Pass an id for anyone else (the pushed page). */
@@ -26,11 +32,21 @@ export default function ProfileScreen({ userId }: Props) {
     const profile = useProfile(userId);
     const actions = useProfileActions(profile);
     const openProfile = useOpenProfile();
+    const currentUser = useCurrentUser();
+    // const { openComments, openShare, commentsCountFor, sheets } = usePostSheets(currentUser);
 
-    const { user, posts, friends, isOwn, loading, refreshing, refresh } = profile;
-    const [tab, setTab] = useState<ProfileTabKey>('posts');
+    const { user, posts, postsLocked, friends, isOwn, loading, refreshing, refresh } = profile;
+    const locked = postsLocked && !isOwn;
     const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
     const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+    const { openComments, openShare, commentsCountFor, sheets } = usePostSheets(currentUser);
+
+    const author = useMemo(
+        () => ({ id: user?.id, username: user?.username ?? '', profilePic: user?.profilePic }),
+        [user],
+    );
+
+    const TAB_KEYS: ProfileTabKey[] = ['posts', 'friends'];
 
     const goBack = () => (router.canGoBack() ? router.back() : router.replace('/'));
 
@@ -58,7 +74,10 @@ export default function ProfileScreen({ userId }: Props) {
         Share.share({ message: post.content || 'Check out this post on Orb8' }).catch(() => { });
 
     // TODO: point these at your chat route and in-app calling once they exist.
-    const handleMessage = () => Alert.alert('Coming soon', "Messaging isn't connected to this screen yet.");
+    const handleMessage = () => {
+        router.push({ pathname: '/chats/[id]', params: { id: userId } } as any)
+    };
+    
     const handleCall = () =>
         user?.phone ? Linking.openURL(`tel:${user.phone}`) : Alert.alert('Coming soon', "Calling isn't available yet.");
 
@@ -74,6 +93,10 @@ export default function ProfileScreen({ userId }: Props) {
     ];
     // console.log('user', user)
     // console.log('friends', friends)
+    const swipe = useSwipeTabs({ count: TAB_KEYS.length });
+    const tab = TAB_KEYS[swipe.index];
+    console.log('video posts', JSON.stringify(posts.filter((p: any) => p.video || p.videoUrl).map((p: any) => p.id)));
+    console.log('first post keys', posts[0] && Object.keys(posts[0]).join(','));
 
     return (
         <View className="flex-1 bg-black">
@@ -117,39 +140,60 @@ export default function ProfileScreen({ userId }: Props) {
                                     onToggleFriend={handleFriendPress}
                                     onMessage={handleMessage}
                                     onCall={handleCall}
+                                    locked={locked}
                                 />
                             </View>
                         )}
                     </Reveal>
 
                     <Reveal delay={220} className="mt-6 gap-4 px-5">
-                        <ProfileTabs active={tab} onChange={setTab} counts={{ posts: posts.length, friends: friends?.length }} />
-
-                        {tab === 'posts' ? (
-                            posts.length === 0 ? (
-                                <Text className="mt-4 text-center text-sm text-neutral-500">No posts yet.</Text>
-                            ) : (
-                                posts.map((post) => (
-                                    <PostCard
-                                        key={post.id}
-                                        post={post}
-                                        canDelete={isOwn}
-                                        onDelete={confirmDeletePost}
-                                        onShare={handleShare}
-                                    />
-                                ))
-                            )
+                        {locked ? (
+                            <PrivateNotice friendStatus={user.friendStatus} onAction={handleFriendPress} />
                         ) : (
-                            <FriendsList friends={friends} onOpen={openProfile} />
+                            <>
+                                <ProfileTabs
+                                    active={tab}
+                                    progress={swipe.progress}
+                                    onChange={(key) => swipe.goTo(TAB_KEYS.indexOf(key))}
+                                    counts={{ posts: posts.length, friends: friends?.length ?? 0 }}
+                                />
+
+                                <SwipePager swipe={swipe} autoHeight minPageHeight={320}>
+                                    <View key="posts" className="gap-4">
+                                        {posts.length === 0 ? (
+                                            <Text className="mt-4 text-center text-sm text-neutral-500">No posts yet.</Text>
+                                        ) : (
+                                            posts.map((post) => (
+                                                <Postcard
+                                                    key={post.id}
+                                                    {...toPostcardProps(post, author)}
+                                                    commentsCount={commentsCountFor(post.id, post.commentsCount)}
+                                                    isOwn={isOwn}
+                                                    showDelete={isOwn}
+                                                    disableAuthorPress
+                                                    onDelete={actions.deletePost}
+                                                    onPressComments={openComments}
+                                                    onClickShare={openShare}
+                                                />
+                                            ))
+                                        )}
+                                    </View>
+
+                                    <View key="friends" className="gap-4">
+                                        <FriendsList friends={friends} onOpen={openProfile} />
+                                    </View>
+                                </SwipePager>
+                            </>
                         )}
                     </Reveal>
                 </ScrollView>
-            )}
+            )
+            }
 
             <ActionSheet visible={avatarMenuOpen && isOwn} onClose={() => setAvatarMenuOpen(false)} actions={avatarActions} />
             <ActionSheet visible={moreMenuOpen && !isOwn} onClose={() => setMoreMenuOpen(false)} actions={moreActions} />
-
+            {sheets}
             <OrbitLoader visible={loading} />
-        </View>
+        </View >
     );
 }

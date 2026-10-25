@@ -122,7 +122,7 @@ export function GlassPanel({
                 <BlurView
                     intensity={intensity}
                     tint="dark"
-                    blurMethod="dimezisBlurView"
+                    blurMethod="dimezisBlurViewSdk31Plus"
                     style={StyleSheet.absoluteFill}
                 />
             )}

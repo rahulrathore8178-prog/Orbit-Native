@@ -13,6 +13,19 @@ export interface Capsule {
   likedByMe: boolean;
   savedByMe: boolean;
   seen: boolean; // has the current user seen it
+  caption: string;
+  viewers?: CapsuleViewerEntry[]; // optional, only for the capsule details view
+  comments?: RawCapsuleComment[];
+}
+
+export interface RawCapsuleComment {
+  id?: string;
+  _id?: string;
+  content?: string;
+  createdAt: string;
+  author?: { id?: string; _id?: string; username: string; profilePic?: string };
+  voiceNote?: { url: string; duration: number };
+  likesCount?: number;
 }
 
 export interface CapsuleGroup {
@@ -36,9 +49,7 @@ export interface CapsuleComment {
 export interface CapsuleViewerEntry {
   id: string;
   username: string;
-  avatar?: string;
-  when: string;
-  liked: boolean;
+  profilePic: string;
 }
 
 export interface Rect {

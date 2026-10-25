@@ -14,7 +14,7 @@ export function SearchHeader() {
             duration={900}
             y={-24}
             className={CONTENT}
-            style={{ paddingTop: Math.max(20, insets.top) }}
+            style={{ paddingTop: Math.max(0, insets.top) }}
         >
             <View className="flex-row items-center gap-3">
                 <View className={`h-11 w-11 items-center justify-center rounded-2xl ${RAISED}`}>

@@ -25,7 +25,7 @@ export const fetchFriends = createAsyncThunk<Friends, void, ThunkConfig>(
     'friends/fetchFriends',
     async (_, thunkAPI) => {
         try {
-            const token = await AsyncStorage.getItem('token');
+            const token = await AsyncStorage.getItem('user');
             const response = await axios.get<{ friends: Friends }>(
                 `${API_URL}/api/social/friends`,
                 {

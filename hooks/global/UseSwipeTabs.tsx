@@ -109,6 +109,14 @@ type PagerProps = {
     minOpacity?: number;
     minScale?: number;
     scrollEnabled?: boolean;
+    /**
+     * Use when the pager sits inside a vertical ScrollView (no fixed height).
+     * Each page keeps its natural height and the pager's height follows the swipe,
+     * blending smoothly between the heights of the two pages involved.
+     */
+    autoHeight?: boolean;
+    /** autoHeight only: minimum page height, so short/empty pages still have a swipeable area. */
+    minPageHeight?: number;
 };
 
 function SwipePage({
@@ -120,6 +128,9 @@ function SwipePage({
     scale,
     minOpacity,
     minScale,
+    autoHeight,
+    minPageHeight,
+    onPageHeight,
     children,
 }: {
     i: number;
@@ -130,6 +141,9 @@ function SwipePage({
     scale: boolean;
     minOpacity: number;
     minScale: number;
+    autoHeight: boolean;
+    minPageHeight: number;
+    onPageHeight: (i: number, h: number) => void;
     children: React.ReactNode;
 }) {
     const animated = useAnimatedStyle(() => {
@@ -149,7 +163,13 @@ function SwipePage({
     });
 
     return (
-        <Reanimated.View style={[{ width, height }, animated]}>
+        <Reanimated.View
+            onLayout={autoHeight ? (e) => onPageHeight(i, e.nativeEvent.layout.height) : undefined}
+            style={[
+                autoHeight ? { width, alignSelf: 'flex-start', minHeight: minPageHeight } : { width, height },
+                animated,
+            ]}
+        >
             {children}
         </Reanimated.View>
     );
@@ -164,13 +184,56 @@ export function SwipePager({
     minOpacity = 0.15,
     minScale = 0.94,
     scrollEnabled = true,
+    autoHeight = false,
+    minPageHeight = 0,
 }: PagerProps) {
     const pages = React.Children.toArray(children);
     // pull out only what's needed so no ref object is passed down to children
-    const { progress, size, scrollRef, onScroll, onLayout } = swipe;
+    const { progress, size, scrollRef, onScroll, onLayout, count } = swipe;
+
+    // autoHeight: measured natural height of every page, read on the UI thread
+    const heightsRef = useRef<number[]>(Array(count).fill(0));
+    const heights = useSharedValue<number[]>(Array(count).fill(0));
+
+    const onPageHeight = useCallback(
+        (i: number, h: number) => {
+            if (Math.abs((heightsRef.current[i] ?? 0) - h) < 0.5) return;
+            heightsRef.current[i] = h;
+            heights.value = [...heightsRef.current];
+        },
+        [heights]
+    );
+
+    const heightStyle = useAnimatedStyle(() => {
+        if (!autoHeight) return {};
+        const hs = heights.value;
+        if (hs.length === 0 || hs.every((h) => h === 0)) return {}; // not measured yet: size to content
+        if (hs.length === 1) return { height: hs[0] };
+        return {
+            height: interpolate(
+                progress.value,
+                hs.map((_, k) => k),
+                hs,
+                Extrapolation.CLAMP
+            ),
+        };
+    });
+
+    // In autoHeight mode the container's height animates, so only react to WIDTH changes
+    // (otherwise every animated frame would trigger a re-render).
+    const handleLayout = useCallback(
+        (e: LayoutChangeEvent) => {
+            if (autoHeight && Math.abs(e.nativeEvent.layout.width - size.w) < 0.5) return;
+            onLayout(e);
+        },
+        [autoHeight, size.w, onLayout]
+    );
 
     return (
-        <View style={[{ flex: 1, overflow: 'hidden' }, style]} onLayout={onLayout}>
+        <Reanimated.View
+            style={[{ overflow: 'hidden' }, autoHeight ? null : { flex: 1 }, style, heightStyle]}
+            onLayout={handleLayout}
+        >
             {size.w > 0 && (
                 <Reanimated.ScrollView
                     ref={scrollRef}
@@ -196,13 +259,16 @@ export function SwipePager({
                             scale={scale}
                             minOpacity={minOpacity}
                             minScale={minScale}
+                            autoHeight={autoHeight}
+                            minPageHeight={minPageHeight}
+                            onPageHeight={onPageHeight}
                         >
                             {child}
                         </SwipePage>
                     ))}
                 </Reanimated.ScrollView>
             )}
-        </View>
+        </Reanimated.View>
     );
 }
 

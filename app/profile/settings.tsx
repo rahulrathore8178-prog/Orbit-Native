@@ -1,3 +1,4 @@
+import { authStorage } from '@/lib/auth/authStorage';
 import { API_URL } from '@/lib/utils';
 import { setUserId } from '@/redux/slice/profileSlice';
 import { useAppDispatch } from '@/redux/store';
@@ -12,18 +13,21 @@ const Settings = () => {
     const dispatch = useAppDispatch();
 
     const handleLogout = async () => {
-        const token = await AsyncStorage.getItem('token');
+        const token = await authStorage.getToken();
+        console.log('[logout] token', token);
         try {
             await axios.get(`${API_URL}/api/auth/user/logout`, {
                 withCredentials: true,
                 headers: { Authorization: `Bearer ${token}` },
             });
+            console.log('[logout] API_URL', API_URL);
+            console.log('[logout] logout request sent successfully');
         } catch (error) {
             // Continue local cleanup even if API request fails.
             console.error('logout error', error);
         }
 
-        await AsyncStorage.removeItem('token');
+        await authStorage.clear();
         await AsyncStorage.removeItem('user');
         dispatch(setUserId(null));
 
@@ -31,9 +35,9 @@ const Settings = () => {
             window.dispatchEvent(new Event('auth:user-updated'));
         } else {
             DeviceEventEmitter.emit('auth:user-updated');
-        }
+        };
 
-        router.replace('/');
+        console.log('[logout] user logged out and redirected to login screen');
     };
 
     return (
@@ -53,6 +57,12 @@ const Settings = () => {
                 className="flex-row text-white bg-red-800 rounded-full items-center gap-3 px-5 py-3 active:bg-neutral-900"
             >
                 <Text className="text-white font-semibold">Logout</Text>
+            </Pressable>
+            <Pressable
+                onPress={() => router.push('/profile/savedPosts')}
+                className="flex-row text-white bg-gray-800 rounded-full items-center gap-3 px-5 py-3 active:bg-neutral-900"
+            >
+                <Text className="text-white font-semibold">Saved Posts</Text>
             </Pressable>
         </View>
     )

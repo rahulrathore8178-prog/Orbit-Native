@@ -1,14 +1,12 @@
-import React from 'react';
 import { View } from 'react-native';
 import { COLORS } from '../../constants/capsule/constants';
-import { STATIC_VIEWERS } from './staticViews';
-import type { Capsule } from '../../constants/capsule/types';
+import type { Capsule, CapsuleViewerEntry } from '../../constants/capsule/types';
 import { GlassPanel } from '../ui/capsule/GlassPanel';
 import { NeoButton } from '../ui/capsule/NeoButton';
 
 interface Props {
   capsule: Capsule;
-  onViews: () => void;
+  onViews: (viewers: CapsuleViewerEntry[]) => void;
   onLikes: () => void;
   onComments: () => void;
   onSend: () => void;
@@ -17,6 +15,7 @@ interface Props {
 
 // Bottom glass panel for your own capsule: views, likes, comments, send, delete.
 export function OwnerActionBar({ capsule, onViews, onLikes, onComments, onSend, onDelete }: Props) {
+  console.log('[OwnerActionBar] capsule', capsule.id, capsule.likesCount, capsule.commentsCount);
   return (
     <GlassPanel edge="top" intensity={50}>
       <View className="items-center pt-2">
@@ -25,8 +24,8 @@ export function OwnerActionBar({ capsule, onViews, onLikes, onComments, onSend, 
       <View className="flex-row items-start justify-around px-3 pb-3 pt-3">
         <NeoButton
           icon="eye-outline"
-          label={STATIC_VIEWERS.length /* static until the views backend exists */}
-          onPress={onViews}
+          label={capsule.viewers?.length || 0}
+          onPress={() => onViews(capsule.viewers || [])}
           accessibilityLabel="See views"
         />
         <NeoButton

@@ -26,7 +26,7 @@ const FRIEND_BUTTON: Record<
 };
 
 /** Only rendered on other people's profiles. */
-export default function ProfileActions({ friendStatus, onToggleFriend, onMessage, onCall }: Props) {
+export default function ProfileActions({ friendStatus, onToggleFriend, onMessage, onCall, locked }: Props) {
     const { label, Icon: FriendIcon, accent, iconColor } = FRIEND_BUTTON[friendStatus] ?? FRIEND_BUTTON.none;
 
     return (
@@ -42,18 +42,23 @@ export default function ProfileActions({ friendStatus, onToggleFriend, onMessage
                 )}
             </Pressable>
 
-            <Pressable className="flex-1" onPress={onMessage} accessibilityRole="button">
-                {({ pressed }) => (
-                    <NeoView radius={22} pressed={pressed} style={{ height: 44 }}>
-                        <View className="flex-row items-center gap-2">
-                            <MessageCircle size={16} color={COLORS.text} strokeWidth={2} />
-                            <Text className="text-[15px] font-semibold text-white">Message</Text>
-                        </View>
-                    </NeoView>
-                )}
-            </Pressable>
+            {!locked && (
+                <>
+                    <Pressable className="flex-1" onPress={onMessage} accessibilityRole="button">
+                        {({ pressed }) => (
+                            <NeoView radius={22} pressed={pressed} style={{ height: 44 }}>
+                                <View className="flex-row items-center gap-2">
+                                    <MessageCircle size={16} color={COLORS.text} strokeWidth={2} />
+                                    <Text className="text-[15px] font-semibold text-white">Message</Text>
+                                </View>
+                            </NeoView>
+                        )}
+                    </Pressable>
 
-            <IconButton Icon={Phone} label="Call" onPress={onCall} />
+
+                    <IconButton Icon={Phone} label="Call" onPress={onCall} />
+                </>
+            )}
         </View>
     );
 }

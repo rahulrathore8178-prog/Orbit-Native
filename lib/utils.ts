@@ -4,14 +4,30 @@ export const API_URL = process.env.EXPO_PUBLIC_API_URL;
 export const BASE_IMAGE_URL = process.env.EXPO_PUBLIC_BASE_URL;
 
 // url for getting the display image from google drive
-export function getDisplayImageUrl(imageUrl: string | null | undefined): string {
+export function getDisplayImageUrl(
+    imageUrl: string | null | undefined
+): string {
     if (!imageUrl) return '';
-    const match = imageUrl.match(/[?&]id=([^&]+)/);
-    if (match && imageUrl.includes('uc?id=')) {
-        return `https://drive.google.com/thumbnail?id=${match[1]}&sz=w1000`;
+
+    // Already converted
+    if (imageUrl.startsWith('https://lh3.googleusercontent.com/')) {
+        return imageUrl;
     }
+
+    // Google Drive uc?id=...
+    const ucMatch = imageUrl.match(/[?&]id=([^&]+)/);
+    if (ucMatch) {
+        return `https://lh3.googleusercontent.com/d/${ucMatch[1]}`;
+    }
+
+    // "/d/FILE_ID"
+    const dMatch = imageUrl.match(/\/d\/([^/?]+)/);
+    if (dMatch) {
+        return `https://lh3.googleusercontent.com/d/${dMatch[1]}`;
+    }
+
     return imageUrl;
-};
+}
 
 // Authentication headers
 export const getAuthHeaders = () => {

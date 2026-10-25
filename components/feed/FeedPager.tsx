@@ -19,12 +19,12 @@ const styles = StyleSheet.create({
  * Put the swipe handlers here (not on the screen root) so the capsule tray, which scrolls
  * sideways itself, never competes with the tab swipe.
  */
-export function FeedPager({ position, panHandlers, children }: Props) {
+export function FeedPager({ position, children }: Props) {
     const { width } = useWindowDimensions();
     const slide = useAnimatedStyle(() => ({ transform: [{ translateX: -position.get() * width }] }));
 
     return (
-        <Animated.View {...panHandlers} style={[styles.pager, { width: width * 2 }, slide]}>
+        <Animated.View  style={[styles.pager, { width: width * 2 }, slide]}>
             <View style={{ width }}>{children[0]}</View>
             <View style={{ width }}>{children[1]}</View>
         </Animated.View>

@@ -12,6 +12,7 @@ import Animated, {
     withRepeat,
     withTiming,
 } from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const RING_SIZES = [52, 84, 122]; // % of the shorter screen side
 
@@ -57,7 +58,7 @@ export function OrbitBackdrop() {
         <View pointerEvents="none" className="absolute inset-0 items-center justify-center opacity-30">
             <Reveal delay={0} duration={1400} className="absolute inset-0">
                 <LinearGradient
-                    colors={[white(0.07), "transparent"]}
+                    colors={[white(0.09), "transparent"]}
                     start={{ x: 0.5, y: 0 }}
                     end={{ x: 0.5, y: 0.6 }}
                     style={StyleSheet.absoluteFill}

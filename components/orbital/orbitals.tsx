@@ -1,8 +1,10 @@
 import { ChevronRight, Crown, Globe, Lock, Shield, User, Users } from 'lucide-react-native';
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Image, Pressable, Text, View } from 'react-native';
 import { COLORS, GlassPanel, NeoView } from '../ui/neo';
 import { MyOrbital, Orbital, resolveUrl } from './orbitalData';
+import { API_URL } from '@/lib/utils';
+import axios from 'axios';
 
 type Props = {
     orbital: Orbital | MyOrbital;
@@ -41,8 +43,8 @@ export default function OrbitalCard({ orbital, onPress }: Props) {
     const isPrivate = orbital?.visibility === 'private';
     const VisIcon = isPrivate ? Lock : Globe;
 
-   const creator = (orbital as Orbital)?.author;   // undefined on "my orbitals" items
-  const role = (orbital as MyOrbital)?.role;       // undefined on "joined" items
+    const creator = (orbital as Orbital)?.author;   // undefined on "my orbitals" items
+    const role = (orbital as MyOrbital)?.role;       // undefined on "joined" items
     const avatarUri = resolveUrl(creator?.profilePic);
     const roleMeta = role ? ROLE_META[role] ?? ROLE_META.member : undefined;
 

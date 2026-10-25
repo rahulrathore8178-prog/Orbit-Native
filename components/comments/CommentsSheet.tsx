@@ -25,6 +25,7 @@ import CommentItem from './CommentItem';
 import {
     Comment,
     Draft,
+    commentReply,
     createComment,
     deleteCommentApi,
     errMsg,
@@ -78,7 +79,7 @@ export default function CommentsSheet({ visible, postId, onClose, currentUser, o
 
     const { comments, loading, refreshing, error, refresh, reload, add, removeLocal, patch } = useComments(
         activeId,
-        currentUser._id
+        currentUser?._id
     );
 
     const [replyTo, setReplyTo] = useState<Comment | null>(null);
@@ -164,10 +165,38 @@ export default function CommentsSheet({ visible, postId, onClose, currentUser, o
                 setReplyTo(null);
                 return null;
             } catch (e) {
+                console.error('Error posting comment (handle submit)', e);
                 return errMsg(e, 'Could not post comment');
             }
         },
         [activeId, replyTo, currentUser, add, onCountChange]
+    );
+
+    const handleReply = useCallback(
+        async (c: Comment, draft: Draft) => {
+            if (!activeId) return 'Something went wrong';
+            try {
+                // thread root: if you're replying to a reply, use its parent; otherwise the comment itself
+                const rootId = c.parentId ?? c._id;
+
+                const created = await commentReply(
+                    rootId,        // commentId: the comment being replied to
+                    activeId,     // postId
+                    draft,
+                    rootId        // parentId: the thread root
+                );
+
+                add(created);
+                onCountChange?.(activeId, 1);
+                setExpanded((e) => ({ ...e, [rootId]: true })); // open the thread so the new reply is visible
+                setReplyTo(null);
+                return null;
+            } catch (e) {
+                console.error('Error posting comment (handle reply)', e);
+                return errMsg(e, 'Could not post comment');
+            }
+        },
+        [activeId, add, onCountChange]
     );
 
     const handleLike = useCallback(
@@ -256,7 +285,7 @@ export default function CommentsSheet({ visible, postId, onClose, currentUser, o
                 renderItem={({ item, index }) => {
                     const open = !!expanded[item.top._id];
                     return (
-                        <View>
+                        <GlassPanel radius={22} style={{ padding: 14 }}>
                             <CommentItem
                                 comment={item.top}
                                 index={index}
@@ -268,8 +297,18 @@ export default function CommentsSheet({ visible, postId, onClose, currentUser, o
                                 onReply={setReplyTo}
                                 onDelete={handleDelete}
                             />
+
                             {open && item.replies.length > 0 && (
-                                <View style={{ marginLeft: 50, marginTop: 14, gap: 14 }}>
+                                <View
+                                    style={{
+                                        marginTop: 12,
+                                        marginLeft: 18,
+                                        paddingLeft: 14,
+                                        gap: 14,
+                                        borderLeftWidth: 2,
+                                        borderLeftColor: 'rgba(255,255,255,0.10)', // thread line
+                                    }}
+                                >
                                     {item.replies.map((r) => (
                                         <CommentItem
                                             key={r._id}
@@ -283,7 +322,7 @@ export default function CommentsSheet({ visible, postId, onClose, currentUser, o
                                     ))}
                                 </View>
                             )}
-                        </View>
+                        </GlassPanel>
                     );
                 }}
                 ListEmptyComponent={
@@ -303,7 +342,7 @@ export default function CommentsSheet({ visible, postId, onClose, currentUser, o
 
     return (
         <Modal visible={mounted} transparent animationType="none" statusBarTranslucent onRequestClose={onClose}>
-            <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: 'black/10', opacity: backdropOpacity }]} />
+            <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.1)', opacity: backdropOpacity }]} />
             <Pressable
                 style={StyleSheet.absoluteFill}
                 onPress={() => (kbVisible ? Keyboard.dismiss() : onClose())}
@@ -312,8 +351,8 @@ export default function CommentsSheet({ visible, postId, onClose, currentUser, o
 
             <Animated.View pointerEvents="box-none" style={{ flex: 1, justifyContent: 'flex-end', paddingBottom: kbAnim }}>
                 <Animated.View style={[styles.sheet, { height: height * 0.88, transform: [{ translateY }] }]}>
-                    <BlurView intensity={60} tint="dark" blurMethod="dimezisBlurView" style={StyleSheet.absoluteFill} />
-                    <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(10,12,18,0.86)' }]} />
+                    <BlurView intensity={60} tint="dark" style={StyleSheet.absoluteFill} />
+                    <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(10,12,18,0.90)' }]} />
 
                     <View {...pan.panHandlers} style={styles.grabberArea}>
                         <View style={styles.grabber} />
@@ -335,6 +374,7 @@ export default function CommentsSheet({ visible, postId, onClose, currentUser, o
                         replyingTo={replyTo}
                         onCancelReply={() => setReplyTo(null)}
                         onSubmit={handleSubmit}
+                        onReply={handleReply}
                         keyboardVisible={kbVisible}
                         bottomInset={insets.bottom}
                     />

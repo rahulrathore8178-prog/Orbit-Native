@@ -1,3 +1,4 @@
+import { DrawerProvider } from '@/components/sideDrawer/DrawerContext';
 import { FloatingTabBar } from '@/components/ui/FloatingTabBar';
 import { useTabBarLayout } from '@/hooks/useTabBarLayout';
 import { Stack, Tabs } from 'expo-router';
@@ -12,6 +13,7 @@ export default function TabLayout() {
   const BAR_LEFT = (screenWidth - BAR_WIDTH) / 2;    // exact centre
 
   return (
+    <DrawerProvider>
     <Tabs
       tabBar={(props) => <FloatingTabBar {...props} />}
       screenOptions={{ headerShown: false }}
@@ -44,7 +46,7 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="askIgris"
+        name="AskIgris"
         options={{
           title: 'AskIgris',
           tabBarIcon: ({ color }) => <Brain size={23} color={color} />,
@@ -55,11 +57,12 @@ export default function TabLayout() {
         options={{
           title: 'Profile',
           headerStyle: { backgroundColor: '#000000' },
-          headerTintColor: '#ffffff',
+          // headerTintColor: '#ffffff',
           headerTitleAlign: 'center',
           tabBarIcon: ({ color }) => <ChartArea size={23} color={color} />,
         }}
       />
     </Tabs>
+    </DrawerProvider>
   );
 }

@@ -43,7 +43,7 @@ export default function DiscoverScreen() {
     coords: Coordinates,
   ): Promise<DiscoverResponse> {
     try {
-      const token = await AsyncStorage.getItem('token');
+      const token = await AsyncStorage.getItem('user');
       const response = await axios.get(`${API_URL}/api/chat/${coords}`, {
         withCredentials: true,
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,

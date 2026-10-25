@@ -13,6 +13,7 @@ import { Friend, ProfilePost, ProfileUser } from '@/components/profile/profile';
 export function useProfile(userId?: string) {
     const [user, setUser] = useState<ProfileUser | null>(null);
     const [posts, setPosts] = useState<ProfilePost[]>([]);
+    const [postsLocked, setPostsLocked] = useState(false); // private profile and not friends
     const [otherFriends, setOtherFriends] = useState<Friend[]>([]);
     const [currentUserId, setCurrentUserId] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
@@ -28,16 +29,20 @@ export function useProfile(userId?: string) {
 
             const target = userId && userId !== me.id ? await profileApi.getUser(userId) : me;
             const isSelf = target.id === me.id;
-            // console.log('target', target?.friends);
 
-            const [nextPosts, nextFriends] = await Promise.all([
-                profileApi.getPosts(target.id),
-                isSelf ? Promise.resolve<Friend[]>([]) : profileApi.getFriends(target.id),
-            ]);
+            // A private profile answers 403. That is handled inside getPostsGuarded,
+            // so the header still loads and we just show the "private" notice.
+            const { posts: nextPosts, locked } = await profileApi.getPostsGuarded(target.id);
 
             setUser(target);
-            setPosts(nextPosts);
-            setOtherFriends(target?.friends);
+            setPostsLocked(!isSelf && locked);
+            setPosts(
+                nextPosts.map((p) => ({
+                    ...p,
+                    isLikedByCurrentUser: p.isLikedByCurrentUser ?? !!p.likedBy?.includes(me.id),
+                })),
+            );
+            setOtherFriends(isSelf || locked ? [] : target.friends ?? []);
         } catch (error) {
             console.error('Error loading profile:', error);
         } finally {
@@ -48,8 +53,15 @@ export function useProfile(userId?: string) {
 
     useEffect(() => {
         setLoading(true);
+        setPostsLocked(false);
         load();
     }, [load]);
+
+    // Once a friend request is accepted/you become friends, unlock without a manual refresh.
+    const friendStatus = user?.friendStatus;
+    useEffect(() => {
+        if (postsLocked && friendStatus === 'friends') load();
+    }, [friendStatus, postsLocked, load]);
 
     useEffect(() => {
         // own friends still come from redux; if fetchFriends is a createAsyncThunk, use dispatch(fetchFriends())
@@ -71,7 +83,7 @@ export function useProfile(userId?: string) {
         load();
     }, [load]);
 
-    return { user, posts, friends, isOwn, loading, refreshing, refresh, patchUser, setPosts };
+    return { user, posts, postsLocked, friends, isOwn, loading, refreshing, refresh, patchUser, setPosts };
 }
 
 export type ProfileState = ReturnType<typeof useProfile>;

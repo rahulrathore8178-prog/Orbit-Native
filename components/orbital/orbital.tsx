@@ -29,7 +29,8 @@ import Animated, {
     withTiming,
 } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { OrbitalRole, OrbitalVisibility, resolveUrl } from './orbitalData';
+import { OrbitalRole, OrbitalVisibility, resolveUrl, fetchOrbitalRequests as fetchRequestsApi } from './orbitalData';
+// import {  } from './orbitalData'
 
 /* ---------- types ---------- */
 type UserLite = {
@@ -423,6 +424,37 @@ export default function OrbitalDetail() {
     const { id: orbitalId, data: seedRaw } = useLocalSearchParams<{ id: string; data?: string }>();
     const router = useRouter();
     const reduce = useReducedMotion();
+    console.log('OrbitalDetail', orbitalId);
+
+    const fetchOrbitalMembers = useCallback(async () => {
+        if (!orbitalId) return;
+        try {
+            const res = await axios.get(`${API_URL}/api/orbital/${orbitalId}/members`);
+            console.log('fetchOrbitalMembers', res?.data);
+        } catch (error) {
+            console.error('Error fetching orbital members:', error);
+            console.log('Orbital ID:', orbital?._id, 'Orbital Data:', orbital, 'API_URL:', API_URL);
+        }
+    }, [orbitalId]);
+
+    const fetchOrbitalRequests = useCallback(async () => {
+        if (!orbitalId) return [];
+        try {
+            return await fetchRequestsApi(orbitalId);
+        } catch (err: any) {
+            console.error('Error fetching orbital requests:', err);
+            console.log(err.code, err.response?.status, err.response?.data);
+            return [];
+        }
+    }, [orbitalId]);
+
+
+
+    useEffect(() => {
+        fetchOrbitalMembers();
+        fetchOrbitalRequests();
+    }, [fetchOrbitalMembers, fetchOrbitalRequests, orbitalId]);
+
 
     // the list passes the orbital along, so the page renders instantly and refreshes in the background
     const seed = useMemo(() => parseSeed(seedRaw), [seedRaw]);
@@ -571,9 +603,16 @@ export default function OrbitalDetail() {
 
     const handleJoin = () =>
         run(async () => {
-            const { data } = await api<{ status: ViewerStatus }>(`/${orbitalId}/join`, 'post');
-            setViewer((v) => ({ ...v, status: data.status }));
-            if (data.status === 'active') bumpMembers(1);
+            try {
+                const { data } = await api<{ status: ViewerStatus }>(`/${orbitalId}/join`, 'post');
+                setViewer((v) => ({ ...v, status: data.status }));
+                if (data.status === 'active') bumpMembers(1);
+            } catch (e) {
+                console.error('JOIN ERROR:', e);
+                console.error('STATUS:', (e as any).response?.status);
+                console.error('DATA:', (e as any).response?.data);
+                throw e;
+            }
         });
 
     const handleCancelRequest = () =>
