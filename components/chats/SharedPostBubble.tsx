@@ -113,7 +113,7 @@ export const SharedPostBubble = memo(function SharedPostBubble({ postId, initial
 
     const bubbleWidth = Math.min(width * 0.72, 300)
     const mediaWidth = bubbleWidth - 16 // 8px padding each side
-    const shell = `overflow-hidden rounded-2xl border p-2 ${isMe ? 'rounded-br-md border-blue-400/20 bg-blue-900' : 'rounded-bl-md border-white/10 bg-neutral-900'}`
+    const shell = `overflow-hidden rounded-2xl border p-2 ${isMe ? 'rounded-br-md border-blue-400/20 bg-[#0a1c4a]' : 'rounded-bl-md border-white/10 bg-neutral-900'}`
 
     if (!post) {
         return (

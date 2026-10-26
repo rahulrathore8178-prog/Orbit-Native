@@ -176,7 +176,7 @@ export default function LoginScreen() {
                     <Animated.View entering={enter(2)} style={{ alignItems: 'center', marginTop: 22 }}>
                         <View style={{ flexDirection: 'row' }}>
                             <Text style={{ color: C.mute, fontSize: 14 }}>New to Orbit? </Text>
-                            <Pressable onPress={() => router.push('/singup')} hitSlop={8}>
+                            <Pressable onPress={() => router.push('/signup')} hitSlop={8}>
                                 <Text style={{ color: '#9DB2FF', fontSize: 14, fontWeight: '700' }}>Create your orbit</Text>
                             </Pressable>
                         </View>

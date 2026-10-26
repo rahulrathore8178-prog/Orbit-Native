@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
 import { useDispatch, useSelector } from 'react-redux';
 import { AppDispatch, RootState } from '@/redux/store';
 import { fetchFriends } from '@/redux/slice/friends';
@@ -36,10 +37,10 @@ export function useProfile(userId?: string) {
             // so the header still loads and we just show the "private" notice.
             const { posts: nextPosts, locked } = await profileApi.getPostsGuarded(target.id);
 
-            // Incoming friend requests only exist for your own private profile.
+            // Incoming friend requests: only ever loaded for your own profile.
             // They are an extra: if they fail, the rest of the profile must still show.
             const nextRequests =
-                isSelf && target.isPrivate
+                isSelf
                     ? await profileApi.getFriendRequests().catch((e) => {
                         console.error('Error loading friend requests:', e);
                         return [] as FriendRequest[];
@@ -69,6 +70,15 @@ export function useProfile(userId?: string) {
         setPostsLocked(false);
         load();
     }, [load]);
+
+    // Coming back (e.g. after unarchiving a post) refreshes quietly, with no spinner. Skips the first focus.
+    const focusedOnce = useRef(false);
+    useFocusEffect(
+        useCallback(() => {
+            if (focusedOnce.current) load();
+            focusedOnce.current = true;
+        }, [load]),
+    );
 
     // Once a friend request is accepted/you become friends, unlock without a manual refresh.
     const friendStatus = user?.friendStatus;

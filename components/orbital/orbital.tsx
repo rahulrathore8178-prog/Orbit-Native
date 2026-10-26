@@ -4,7 +4,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ArrowLeft, Camera, Clock, Globe, Lock, LogOut, Trash2, UserPlus, Users } from 'lucide-react-native';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Image, Platform, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { Alert, Image, Platform, Pressable, RefreshControl, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ActionSheet, { SheetAction } from '@/components/ui/ActionSheet';
@@ -427,6 +427,8 @@ export default function OrbitalDetail() {
     const currentUser = useCurrentUser();
     const meId = String(currentUser?.id ?? (currentUser as any)?._id ?? '');
     const { openComments, openShare, commentsCountFor, sheets } = usePostSheets(currentUser);
+    const { width: screenWidth } = useWindowDimensions();
+    const cardWidth = screenWidth - 40; // pager sits inside px-5
 
     // the list passes the orbital along, so the page renders instantly and refreshes in the background
     const seed = useMemo(() => parseSeed(seedRaw), [seedRaw]);
@@ -834,7 +836,8 @@ export default function OrbitalDetail() {
                                                     )}
                                                     commentsCount={commentsCountFor(post.id, post.commentsCount)}
                                                     isOwn={own}
-                                                    showDelete={own || viewer.role === 'admin'}
+                                                    cardWidth={cardWidth}
+                                                    showDelete={own || viewer.isAdmin}
                                                     onDelete={deletePost}
                                                     onPressComments={openComments}
                                                     onClickShare={openShare}

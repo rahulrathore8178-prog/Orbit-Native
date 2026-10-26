@@ -1,5 +1,7 @@
 import { GlassPanel } from '@/components/ui/neo';
 import { useOpenProfile } from '@/hooks/useOpenProfile';
+import { useOnScreen, useVideoViewport } from '@/hooks/postCard/useVideoViewPort';
+import { useGlobalMuted } from '@/hooks/postCard/globalMute';
 import {
     buildWaveform,
     clampAspectRatio,
@@ -22,16 +24,21 @@ import { router, useIsFocused } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+    ActivityIndicator,
     Animated,
     Image,
+    LayoutAnimation,
     Platform,
     Pressable,
     StyleSheet,
     Text,
+    TextInput,
     TouchableOpacity,
     useWindowDimensions,
     View,
 } from 'react-native';
+import { Archive, Pencil, Trash2 } from 'lucide-react-native';
+import ActionSheet, { SheetAction } from '../ui/ActionSheet';
 import { API_URL, getDisplayImageUrl } from '../../lib/utils';
 import ConfirmSheet from '../profile/ConfirmSheet';
 
@@ -45,6 +52,13 @@ export type SharedPostcardProps = Omit<PostcardProps, 'onPressComments' | 'onCli
     /** Both receive the post id, so the parent can pass one stable handler for every card. */
     onPressComments?: (id: string) => void;
     onClickShare?: (id: string) => void;
+    /** Width of the card. Pass the width of the container it sits in (default: screen width minus 24). */
+    cardWidth?: number;
+    /** Owner tools: long-press (or the ... button) opens Archive / Edit caption / Delete. */
+    manageable?: boolean;
+    onArchive?: (id: string) => void | Promise<void>;
+    /** Must reject when saving fails, so the card can show the error and keep the draft. */
+    onEditCaption?: (id: string, content: string) => Promise<void>;
 };
 
 /* ------------------------------ constants ----------------------------- */
@@ -52,6 +66,7 @@ export type SharedPostcardProps = Omit<PostcardProps, 'onPressComments' | 'onCli
 const CARD_MARGIN = 12;
 const CARD_PADDING = 14; // keep in sync with the px-3.5 / mx-3.5 classes below
 const DOUBLE_TAP_DELAY = 250;
+const MAX_CAPTION = 2000;
 const ICON_COLOR = 'rgba(255,255,255,0.9)';
 const SAVED_COLOR = '#F3E7D0'; // soft cream
 
@@ -137,6 +152,7 @@ const PostHeader = ({
     onOpenOrbital,
     createdAt,
     showDelete,
+    manageable,
     disableAuthorPress,
     onOpenAuthor,
     onDelete,
@@ -146,6 +162,7 @@ const PostHeader = ({
     onOpenOrbital?: () => void;
     createdAt: PostcardProps['createdAt'];
     showDelete?: boolean;
+    manageable?: boolean;
     disableAuthorPress?: boolean;
     onOpenAuthor: () => void;
     onDelete: () => void;
@@ -182,10 +199,10 @@ const PostHeader = ({
                     onPress={onDelete}
                     hitSlop={10}
                     accessibilityRole="button"
-                    accessibilityLabel="Delete post"
+                    accessibilityLabel={manageable ? 'Post options' : 'Delete post'}
                     className="p-1"
                 >
-                    <Ionicons name="trash-outline" size={17} color="rgba(255,255,255,0.7)" />
+                    <Ionicons name={manageable ? 'ellipsis-horizontal' : 'trash-outline'} size={manageable ? 20 : 17} color="rgba(255,255,255,0.75)" />
                 </TouchableOpacity>
             )}
         </View>
@@ -238,10 +255,10 @@ const PostHeader = ({
                 onPress={onDelete}
                 hitSlop={10}
                 accessibilityRole="button"
-                accessibilityLabel="Delete post"
+                accessibilityLabel={manageable ? 'Post options' : 'Delete post'}
                 className="p-1"
             >
-                <Ionicons name="trash-outline" size={17} color="rgba(255,255,255,0.7)" />
+                <Ionicons name={manageable ? 'ellipsis-horizontal' : 'trash-outline'} size={manageable ? 20 : 17} color="rgba(255,255,255,0.75)" />
             </TouchableOpacity>
         )}
     </View>
@@ -256,16 +273,19 @@ const VideoMedia = ({
     isVisible,
     box,
     onLike,
+    onLongPress,
     heart,
 }: {
     uri: string;
     isVisible: boolean;
     box: MediaBox;
     onLike: () => void;
+    onLongPress?: () => void;
     heart: React.ReactNode;
 }) => {
     const isFocused = useIsFocused();
-    const [muted, setMuted] = useState(true);
+    const [muted, setMuted] = useGlobalMuted(); // one switch for every video in the app
+    const boxRef = useRef<View>(null);
     const [playing, setPlaying] = useState(false);
 
     const player = useVideoPlayer(uri, (p) => {
@@ -287,13 +307,18 @@ const VideoMedia = ({
         return () => safe(() => sub.remove());
     }, [player]);
 
-    // autoplay when visible + screen focused, pause the moment it isn't
+    // plays while it owns the screen (>= 70% visible), stops below 30%. Works in any list or scroll view.
+    const { active, onScreen } = useVideoViewport(boxRef, isVisible && isFocused);
     useEffect(() => {
-        safe(() => (isVisible && isFocused ? player.play() : player.pause()));
-    }, [isVisible, isFocused, player]);
+        safe(() => (active ? player.play() : player.pause()));
+    }, [active, player]);
+    // a video started by tapping must also stop once it scrolls away
+    useEffect(() => {
+        if (!onScreen) safe(() => player.pause());
+    }, [onScreen, player]);
 
     return (
-        <View className="self-center overflow-hidden rounded-[22px] bg-black" style={box}>
+        <View ref={boxRef} collapsable={false} className="self-center overflow-hidden rounded-[22px] bg-black" style={box}>
             <VideoView
                 player={player}
                 style={styles.fill}
@@ -301,7 +326,7 @@ const VideoMedia = ({
                 nativeControls={false}
                 surfaceType="textureView"
             />
-            <Pressable onPress={onTap} className="absolute inset-0 items-center justify-center">
+            <Pressable onPress={onTap} onLongPress={onLongPress} delayLongPress={350} className="absolute inset-0 items-center justify-center">
                 {!playing && (
                     <View className="h-14 w-14 items-center justify-center rounded-full bg-black/40">
                         <Ionicons name="play" size={22} color="#fff" style={{ marginLeft: 3 }} />
@@ -310,7 +335,7 @@ const VideoMedia = ({
             </Pressable>
             {heart}
             <TouchableOpacity
-                onPress={() => setMuted((m) => !m)}
+                onPress={() => setMuted(!muted)}
                 hitSlop={8}
                 accessibilityRole="button"
                 accessibilityLabel={muted ? 'Unmute video' : 'Mute video'}
@@ -350,12 +375,14 @@ const AudioMedia = ({
             player.play();
         });
 
+    const rowRef = useRef<View>(null);
+    const onScreen = useOnScreen(rowRef, isVisible);
     useEffect(() => {
-        if (!isVisible) safe(() => player.pause());
-    }, [isVisible, player]);
+        if (!onScreen) safe(() => player.pause());
+    }, [onScreen, player]);
 
     return (
-        <View className="mx-3.5 overflow-hidden rounded-[22px]">
+        <View ref={rowRef} collapsable={false} className="mx-3.5 overflow-hidden rounded-[22px]">
             {coverUri ? (
                 <Image
                     source={{ uri: coverUri }}
@@ -409,17 +436,19 @@ const ImageMedia = ({
     box,
     onLike,
     onRatio,
+    onLongPress,
     heart,
 }: {
     uri: string;
     box: MediaBox;
     onLike: () => void;
     onRatio?: (ratio: number) => void;
+    onLongPress?: () => void;
     heart: React.ReactNode;
 }) => {
     const onTap = useDoubleTap(() => { }, onLike);
     return (
-        <Pressable onPress={onTap} className="self-center overflow-hidden rounded-[22px] bg-black/30" style={box}>
+        <Pressable onPress={onTap} onLongPress={onLongPress} delayLongPress={350} className="self-center overflow-hidden rounded-[22px] bg-black/30" style={box}>
             <Image
                 source={{ uri }}
                 blurRadius={22}
@@ -440,6 +469,62 @@ const ImageMedia = ({
         </Pressable>
     );
 };
+
+/* ----------------------------- caption editor ------------------------- */
+
+const CaptionEditor = ({
+    value,
+    onChange,
+    onCancel,
+    onSave,
+    saving,
+    error,
+}: {
+    value: string;
+    onChange: (t: string) => void;
+    onCancel: () => void;
+    onSave: () => void;
+    saving: boolean;
+    error: string | null;
+}) => (
+    <View>
+        <View className="rounded-2xl border border-white/20 bg-white/[0.06] px-3.5 py-2.5">
+            <TextInput
+                value={value}
+                onChangeText={onChange}
+                autoFocus
+                multiline
+                editable={!saving}
+                maxLength={MAX_CAPTION}
+                placeholder="Write a caption..."
+                placeholderTextColor="rgba(255,255,255,0.4)"
+                selectionColor="#ffffff"
+                textAlignVertical="top"
+                className="max-h-40 min-h-[44px] p-0 text-[14px] leading-5 text-white"
+            />
+        </View>
+        {!!error && <Text className="mt-2 text-xs text-red-400">{error}</Text>}
+        <View className="mt-2.5 flex-row items-center">
+            <Text className="flex-1 text-[11px] text-white/40">{value.length}/{MAX_CAPTION}</Text>
+            <TouchableOpacity
+                onPress={onCancel}
+                disabled={saving}
+                activeOpacity={0.7}
+                className="mr-2 rounded-full border border-white/15 px-4 py-1.5"
+            >
+                <Text className="text-[13px] font-semibold text-white/80">Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+                onPress={onSave}
+                disabled={saving}
+                activeOpacity={0.8}
+                className="min-w-[64px] items-center rounded-full bg-white px-4 py-1.5"
+            >
+                {saving ? <ActivityIndicator size="small" color="#000" /> : <Text className="text-[13px] font-bold text-black">Save</Text>}
+            </TouchableOpacity>
+        </View>
+    </View>
+);
 
 /* -------------------------------- card -------------------------------- */
 
@@ -465,7 +550,11 @@ const Postcard = ({
     onDelete,
     onClickShare,
     onPressComments,
-    isVisible = false,
+    isVisible = true, // only a gate now (e.g. other tab); the card measures its own on-screen share
+    cardWidth: cardWidthProp,
+    manageable = false,
+    onArchive,
+    onEditCaption,
 }: SharedPostcardProps) => {
     const { width: screenWidth, height: screenHeight } = useWindowDimensions();
 
@@ -479,7 +568,7 @@ const Postcard = ({
     const hasMedia = hasVideo || hasAudio || hasImage;
 
     // layout
-    const cardWidth = screenWidth - CARD_MARGIN * 2;
+    const cardWidth = cardWidthProp ?? screenWidth - CARD_MARGIN * 2;
     const mediaWidthPx = cardWidth - CARD_PADDING * 2;
     const [measuredRatio, setMeasuredRatio] = useState<number | null>(null);
     const providedRatio = mediaWidth && mediaHeight ? mediaWidth / mediaHeight : null;
@@ -575,6 +664,62 @@ const Postcard = ({
     const [confirmOpen, setConfirmOpen] = useState(false);
     const confirmDelete = () => setConfirmOpen(true);
 
+    /* ---- owner tools: options sheet + inline caption edit ---- */
+    const [optionsOpen, setOptionsOpen] = useState(false);
+    const [editing, setEditing] = useState(false);
+    const [draft, setDraft] = useState('');
+    const [saving, setSaving] = useState(false);
+    const [saveError, setSaveError] = useState<string | null>(null);
+    const [shownContent, setShownContent] = useState(content ?? '');
+    useEffect(() => setShownContent(content ?? ''), [content]);
+
+    const animateLayout = () => {
+        try { LayoutAnimation.configureNext(LayoutAnimation.create(220, 'easeInEaseOut', 'opacity')); } catch { /* not supported */ }
+    };
+
+    const openOptions = useCallback(() => {
+        if (!manageable || editing) return;
+        if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        setOptionsOpen(true);
+    }, [manageable, editing]);
+
+    const startEdit = () => {
+        animateLayout();
+        setDraft(shownContent);
+        setSaveError(null);
+        setEditing(true);
+    };
+    const cancelEdit = () => {
+        animateLayout();
+        setEditing(false);
+        setSaveError(null);
+    };
+    const saveEdit = async () => {
+        const next = draft.trim();
+        if (next === shownContent.trim()) return cancelEdit();
+        if (!next && !hasMedia) return setSaveError("A text post can't be empty.");
+        setSaving(true);
+        setSaveError(null);
+        try {
+            await onEditCaption?.(id, next);
+            animateLayout();
+            setShownContent(next);
+            setEditing(false);
+            if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } catch {
+            setSaveError("Couldn't save your changes. Try again.");
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    // archive, edit, delete (last)
+    const optionActions: SheetAction[] = [
+        { label: 'Archive', Icon: Archive, onPress: () => { onArchive?.(id); } },
+        { label: 'Edit caption', Icon: Pencil, onPress: startEdit },
+        { label: 'Delete', Icon: Trash2, onPress: confirmDelete, destructive: true },
+    ];
+
     const shareBtn = (
         <TouchableOpacity
             onPress={() => onClickShare?.(id)}
@@ -589,20 +734,22 @@ const Postcard = ({
     return (
         <GlassPanel style={{ width: cardWidth, alignSelf: 'center', marginBottom: 14, maxHeight: screenHeight * 0.78 }}>
             <BlurView intensity={75} tint="dark" style={styles.blur}>
+              <Pressable onLongPress={manageable ? openOptions : undefined} delayLongPress={350}>
                 <PostHeader
                     author={author}
                     orbital={orbital}
                     onOpenOrbital={openOrbital}
                     createdAt={createdAt}
-                    showDelete={showDelete}
+                    showDelete={showDelete || manageable}
+                    manageable={manageable}
                     disableAuthorPress={disableAuthorPress}
                     onOpenAuthor={openAuthor}
-                    onDelete={confirmDelete}
+                    onDelete={manageable ? openOptions : confirmDelete}
                 />
 
                 {/* Body */}
                 {hasVideo ? (
-                    <VideoMedia uri={videoUri!} isVisible={isVisible} box={box} onLike={onDoubleTapLike} heart={heart} />
+                    <VideoMedia uri={videoUri!} isVisible={isVisible} box={box} onLike={onDoubleTapLike} onLongPress={manageable ? openOptions : undefined} heart={heart} />
                 ) : hasAudio ? (
                     <AudioMedia
                         id={id}
@@ -617,22 +764,31 @@ const Postcard = ({
                         box={box}
                         onLike={onDoubleTapLike}
                         onRatio={providedRatio ? undefined : setMeasuredRatio}
+                        onLongPress={manageable ? openOptions : undefined}
                         heart={heart}
                     />
+                ) : editing ? (
+                    <View className="mx-3.5">
+                        <CaptionEditor value={draft} onChange={setDraft} onCancel={cancelEdit} onSave={saveEdit} saving={saving} error={saveError} />
+                    </View>
                 ) : (
                     <View className="mx-3.5 border-l-2 border-white/15 py-0.5 pl-3.5">
-                        <Text selectable className="text-[17px] font-normal leading-[26px] tracking-[0.15px] text-white/95">
-                            {content}
+                        <Text selectable={!manageable} className="text-[17px] font-normal leading-[26px] tracking-[0.15px] text-white/95">
+                            {shownContent}
                         </Text>
                     </View>
                 )}
 
                 {/* Footer */}
                 <View className={`px-3.5 pb-4 ${hasMedia ? 'pt-3' : 'pt-4'}`}>
-                    {hasMedia && content ? (
+                    {hasMedia && editing ? (
+                        <View className="mb-3">
+                            <CaptionEditor value={draft} onChange={setDraft} onCancel={cancelEdit} onSave={saveEdit} saving={saving} error={saveError} />
+                        </View>
+                    ) : hasMedia && shownContent ? (
                         <View className="mb-2.5 flex-row items-start">
                             <Text numberOfLines={2} className="mr-2.5 flex-1 text-[13px] leading-[19px] text-white/95">
-                                {content}
+                                {shownContent}
                             </Text>
                             {shareBtn}
                         </View>
@@ -678,7 +834,10 @@ const Postcard = ({
                         {!hasMedia && <View className="ml-auto">{shareBtn}</View>}
                     </View>
                 </View>
+              </Pressable>
             </BlurView>
+
+            <ActionSheet visible={optionsOpen} onClose={() => setOptionsOpen(false)} actions={optionActions} />
 
             <ConfirmSheet
                 visible={confirmOpen}

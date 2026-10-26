@@ -23,10 +23,10 @@ import {
 } from '@/hooks/feed/useHomeFeed';
 import { useOrbitalFeed } from '@/hooks/feed/useOrbitalFeed';
 import { toPostcardProps, type PostcardProps } from '@/components/services/feed/postUtils';
-import { useFocusEffect, usePathname, useRouter } from 'expo-router';
+import { usePathname, useRouter } from 'expo-router';
 import { MenuIcon } from 'lucide-react-native';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import Reanimated, { useAnimatedStyle } from 'react-native-reanimated';
 import { BlurTargetView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -35,7 +35,6 @@ import { getDisplayImageUrl, resolveImg } from '../../lib/utils';
 import { useDrawer } from '@/components/sideDrawer/DrawerContext';
 import { GestureDetector } from 'react-native-gesture-handler';
 import NotificationBell from '@/components/notifications/NotificationBell';
-import { usePostViews, VIEW_COUNT_CONFIG } from '@/hooks/feed/usePostViews';
 
 /* ------------------------------ header -------------------------------- */
 
@@ -110,13 +109,16 @@ export default function HomeScreen() {
     const blurTarget = useRef<View | null>(null);
     const pathname = usePathname();
 
+    useEffect(() => {
+        console.log('HOME PATH:', pathname);
+    }, []);
+
     // data
     const currentUser = useCurrentUser();
     const feed = useHomeFeed();
     const orbitalFeed = useOrbitalFeed<PostcardProps>(toPostcardProps);
     const capsules = useCapsules();
     const share = useShare();
-    const hasMoreRef = useRef(false);
 
     // ui state
     const [drawerOpen, setDrawerOpen] = useState(false);
@@ -124,13 +126,6 @@ export default function HomeScreen() {
     const [commentsPostId, setCommentsPostId] = useState<string | null>(null);
     const [viewer, setViewer] = useState<{ userId: string; origin: Rect } | null>(null);
     const [headerH, setHeaderH] = useState(insets.top + 64); // estimate until onLayout fires
-    const [isFocused, setIsFocused] = useState(true);
-    useFocusEffect(
-        useCallback(() => {
-            setIsFocused(true);
-            return () => setIsFocused(false);
-        }, []),
-    );
 
     // Own visible-id per list: both lists stay mounted, so a shared one would let
     // the off-screen page steal autoplay.
@@ -153,25 +148,6 @@ export default function HomeScreen() {
         profilePic: getDisplayImageUrl(currentUser?.profilePic),
     };
 
-    const TAB_BAR_AREA = insets.bottom + 72; // floating tab bar height + margin; adjust to your FloatingTabBar
-
-    const postViews = usePostViews({
-        enabled:
-            isFocused && !drawerOpen && !commentsPostId && !share.shareId && !viewer,
-        safeTop: headerH,
-        safeBottom: TAB_BAR_AREA,
-    });
-
-    const feedPairs = useRef([
-        { viewabilityConfig: VIEWABILITY_CONFIG, onViewableItemsChanged: yours.onViewableItemsChanged },
-        { viewabilityConfig: VIEW_COUNT_CONFIG, onViewableItemsChanged: postViews.onViewableItemsChanged },
-    ]).current;
-
-    const orbitalPairs = useRef([
-        { viewabilityConfig: VIEWABILITY_CONFIG, onViewableItemsChanged: orbitals.onViewableItemsChanged },
-        { viewabilityConfig: VIEW_COUNT_CONFIG, onViewableItemsChanged: postViews.onViewableItemsChanged },
-    ]).current;
-
     const handleSelect = (key: DrawerItemKey) => {
         setDrawerOpen(false);
         if (key === 'orbitals') {
@@ -186,43 +162,26 @@ export default function HomeScreen() {
 
     const renderItem = useCallback(
         ({ item }: { item: PostcardProps }) => (
-            <View ref={(n) => postViews.setNode(item.id, n)} collapsable={false}>
-                <Postcard
-                    {...item}
-                    isVisible={tabs.tab === 0 && item.id === yours.visibleId}
-                    onPressComments={() => setCommentsPostId(item.id)}
-                    onClickShare={share.open}
-                />
-            </View>
+            <Postcard
+                {...item}
+                isVisible={tabs.tab === 0}
+                onPressComments={() => setCommentsPostId(item.id)}
+                onClickShare={share.open}
+            />
         ),
-        [yours.visibleId, tabs.tab, share.open, postViews.setNode],
+        [tabs.tab, share.open],
     );
 
     const renderOrbitalItem = useCallback(
         ({ item }: { item: PostcardProps }) => (
-            <View ref={(n) => postViews.setNode(item.id, n)} collapsable={false}>
-                <Postcard
-                    {...item}
-                    isVisible={tabs.tab === 1 && item.id === orbitals.visibleId}
-                    onPressComments={() => setCommentsPostId(item.id)}
-                    onClickShare={share.open}
-                />
-            </View>
+            <Postcard
+                {...item}
+                isVisible={tabs.tab === 1}
+                onPressComments={() => setCommentsPostId(item.id)}
+                onClickShare={share.open}
+            />
         ),
-        [orbitals.visibleId, tabs.tab, share.open, postViews.setNode],
-    );
-
-    const feedFooter = useMemo(
-        () => (
-            <View className="items-center py-6">
-                {feed.loadingMore ? (
-                    <ActivityIndicator color="#8a8a8a" />
-                ) : !feed.hasMore && feed.posts.length > 0 ? (
-                    <Text className="text-xs text-white/40">You&apos;re all caught up</Text>
-                ) : null}
-            </View>
-        ),
-        [feed.loadingMore, feed.hasMore, feed.posts.length],
+        [tabs.tab, share.open],
     );
 
     return (
@@ -237,6 +196,8 @@ export default function HomeScreen() {
                                 data={feed.posts}
                                 keyExtractor={keyExtractor}
                                 renderItem={renderItem}
+                                viewabilityConfig={VIEWABILITY_CONFIG}
+                                onViewableItemsChanged={yours.onViewableItemsChanged}
                                 extraData={`${yours.visibleId}-${tabs.tab}`}
                                 showsVerticalScrollIndicator={false}
                                 refreshing={feed.refreshing}
@@ -244,17 +205,14 @@ export default function HomeScreen() {
                                 progressViewOffset={feedTop}
                                 onScroll={onScroll}
                                 scrollEventThrottle={16}
-                                onEndReached={feed.loadMore}
-                                onEndReachedThreshold={1.5}
-                                ListFooterComponent={feedFooter}
-                                initialNumToRender={3}
-                                maxToRenderPerBatch={4}
-                                windowSize={7}
-                                viewabilityConfigCallbackPairs={feedPairs}
                                 contentContainerStyle={{ paddingTop: feedTop + 12, paddingBottom: 12 }}
                                 ListEmptyComponent={
                                     feed.loading ? null : <Text className="mt-8 text-center text-white/60">No posts yet.</Text>
                                 }
+                                onEndReached={() => {
+                                    if (!feed.loading && !feed.loadingMore && feed.hasMore) feed.loadMore();
+                                }}
+                                onEndReachedThreshold={1}
                             />
 
                             {/* page 2: Orbitals (data, refresh, paging, empty states live in useOrbitalFeed) */}
@@ -264,7 +222,8 @@ export default function HomeScreen() {
                                 topInset={headerH}
                                 onBrowse={() => router.push('/orbital')}
                                 listProps={{
-                                    viewabilityConfigCallbackPairs: orbitalPairs,
+                                    viewabilityConfig: VIEWABILITY_CONFIG,
+                                    onViewableItemsChanged: orbitals.onViewableItemsChanged,
                                     extraData: `${orbitals.visibleId}-${tabs.tab}`,
                                     showsVerticalScrollIndicator: false,
                                     onScroll,

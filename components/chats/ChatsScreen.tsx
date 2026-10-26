@@ -9,15 +9,17 @@ import {
   ToastVariant,
   captureBackdrop
 } from '@/components/ui/chats/ui'
+import { OrbitBackdrop } from '@/components/search/OrbitbackDrop'
 import { Message } from '@/hooks/chats/useChat'
 import { Friend } from '@/redux/slice/friends'
+import { Ionicons } from '@expo/vector-icons'
 import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
-import React, { memo, useCallback, useMemo, useRef, useState } from 'react'
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FlatList, Platform, Pressable, Text, TextInput, View } from 'react-native'
 // Frame-synced keyboard handling on both platforms (replaces RN's KeyboardAvoidingView).
 import { KeyboardAvoidingView, useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller'
-import Animated, { FadeInUp, ZoomIn, interpolate, useAnimatedStyle } from 'react-native-reanimated'
+import Animated, { FadeIn, FadeInDown, FadeInUp, ZoomIn, ZoomOut, interpolate, useAnimatedStyle } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { SharedPostBubble } from './SharedPostBubble'
 
@@ -28,6 +30,8 @@ type Props = {
   toast: ToastData | null
   onBack: () => void
   onSend: (text: string) => boolean
+  /** resolves 'read' when the server refuses because the message was already seen */
+  onEditMessage: (id: string, text: string) => Promise<'ok' | 'read' | 'error'>
   onOpenProfile: (contact: Friend) => void
   onDeleteMessage: (id: string) => void
   onClearChat: () => void
@@ -56,10 +60,20 @@ const MessageBubble = memo(function MessageBubble({ item, onLongPress }: { item:
         <Pressable
           onLongPress={handleLongPress}
           delayLongPress={250}
-          className={`max-w-[78%] rounded-2xl border px-4 py-2.5 active:opacity-80 ${isMe ? 'rounded-br-md border-blue-400/20 bg-blue-900' : 'rounded-bl-md border-white/5 bg-neutral-900'}`}
+          className={`max-w-[78%] rounded-2xl border px-4 py-2.5 active:opacity-80 ${isMe ? 'rounded-br-md border-blue-500/25 bg-[#0a1c4a]' : 'rounded-bl-md border-white/5 bg-neutral-900'}`}
         >
           <Text className={`text-[14.5px] leading-5 ${isMe ? 'text-blue-50' : 'text-gray-100'}`}>{item.content}</Text>
-          <Text className={`mt-1 self-end text-[10px] ${isMe ? 'text-blue-200/60' : 'text-gray-400'}`}>{item.time}</Text>
+          <View className="mt-1 flex-row items-center gap-1 self-end">
+            {item.edited && <Text className={`text-[10px] italic ${isMe ? 'text-blue-200/60' : 'text-gray-400'}`}>edited</Text>}
+            <Text className={`text-[10px] ${isMe ? 'text-blue-200/60' : 'text-gray-400'}`}>{item.time}</Text>
+            {isMe && (
+              <Ionicons
+                name={item.read ? 'checkmark-done' : 'checkmark'}
+                size={14}
+                color={item.read ? '#38bdf8' : 'rgba(191,219,254,0.6)'}
+              />
+            )}
+          </View>
         </Pressable>
       )}
     </Animated.View>
@@ -73,14 +87,35 @@ const Composer = memo(function Composer({
   onSend,
   onAttach,
   onVoice,
+  editing,
+  onCancelEdit,
+  onSubmitEdit,
 }: {
   safeBottom: number
   onSend: (text: string) => boolean | Promise<boolean>
   onAttach: () => void
   onVoice: () => void
+  /** message being edited (its text is loaded into the input) */
+  editing: Message | null
+  onCancelEdit: () => void
+  onSubmitEdit: (text: string) => Promise<boolean>
 }) {
   const [text, setText] = useState('')
+  const inputRef = useRef<TextInput>(null)
+  const wasEditing = useRef(false)
   const hasText = text.trim().length > 0
+
+  // entering edit mode loads the message into the input; leaving it clears the input again
+  useEffect(() => {
+    if (editing) {
+      wasEditing.current = true
+      setText(editing.content)
+      setTimeout(() => inputRef.current?.focus(), 60)
+    } else if (wasEditing.current) {
+      wasEditing.current = false
+      setText('')
+    }
+  }, [editing?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Bottom padding glides from "home indicator" spacing to a small gap as the keyboard rises,
   // driven by the keyboard itself, so there is no jump and no React re-render.
@@ -93,21 +128,37 @@ const Composer = memo(function Composer({
   const submit = async () => {
     const trimmed = text.trim()
     if (!trimmed) return
+    if (editing) {
+      if (trimmed === editing.content.trim()) return onCancelEdit() // nothing changed
+      await onSubmitEdit(trimmed) // the parent leaves edit mode on success and keeps it open on failure
+      return
+    }
     setText('')
     const ok = await onSend(trimmed)
     if (!ok) setText((cur) => cur || trimmed)
   }
 
   return (
-    <Animated.View
-      className="flex-row items-end gap-2 border-t border-white/10 bg-neutral-950 px-3 pt-2.5"
-      style={wrapStyle}
-    >
-      <IconButton name="attach" onPress={onAttach} />
+    <Animated.View className="border-t border-white/10 bg-neutral-950 px-3 pt-2.5" style={wrapStyle}>
+      {editing && (
+        <Animated.View entering={FadeInUp.duration(160)} className="mb-2 flex-row items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-3 py-2">
+          <Ionicons name="pencil" size={14} color="#38bdf8" />
+          <View className="flex-1">
+            <Text className="text-[11px] font-semibold text-sky-400">Editing message</Text>
+            <Text numberOfLines={1} className="text-[12px] text-gray-400">{editing.content}</Text>
+          </View>
+          <Pressable onPress={onCancelEdit} hitSlop={10} accessibilityLabel="Cancel edit">
+            <Ionicons name="close" size={18} color="#a3a3a3" />
+          </Pressable>
+        </Animated.View>
+      )}
+      <View className="flex-row items-end gap-2">
+      {!editing && <IconButton name="attach" onPress={onAttach} />}
 
       {/* Inset (pressed-in) neumorphic input */}
       <View className="min-h-[40px] flex-1 justify-center rounded-3xl border border-white/5 border-t-black bg-black px-4">
         <TextInput
+          ref={inputRef}
           value={text}
           onChangeText={setText}
           multiline
@@ -120,11 +171,14 @@ const Composer = memo(function Composer({
 
       <Animated.View key={hasText ? 'send' : 'mic'} entering={ZoomIn.duration(150)}>
         {hasText ? (
-          <IconButton name="send" onPress={submit} solid color="#fff" size={17} />
+          <IconButton name={editing ? 'checkmark' : 'send'} onPress={submit} solid color="#fff" size={17} />
+        ) : editing ? (
+          <IconButton name="close" onPress={onCancelEdit} />
         ) : (
           <IconButton name="mic-outline" onPress={onVoice} />
         )}
       </Animated.View>
+      </View>
     </Animated.View>
   )
 })
@@ -145,6 +199,7 @@ export function ChatScreen({
   toast,
   onBack,
   onSend,
+  onEditMessage,
   onOpenProfile,
   onDeleteMessage,
   onClearChat,
@@ -153,11 +208,44 @@ export function ChatScreen({
   const insets = useSafeAreaInsets()
   const listRef = useRef<FlatList<Message>>(null)
   const [sheet, setSheet] = useState<Sheet | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [showJump, setShowJump] = useState(false)
 
   // Inverted list wants newest first. Offset 0 is the bottom, so the chat opens
   // at the latest message with no scrolling, and the latest message stays
   // visible when the keyboard opens or the composer grows.
   const data = useMemo(() => [...messages].reverse(), [messages])
+
+  // always the live copy, so "seen" arriving over the socket is reflected immediately
+  const editing = useMemo(() => messages.find((m) => m.id === editingId) ?? null, [messages, editingId])
+  const cancelEdit = useCallback(() => setEditingId(null), [])
+
+  // seen while editing -> editing is no longer allowed
+  useEffect(() => {
+    if (editing?.read) {
+      setEditingId(null)
+      onNotify("Message was seen, so it can't be edited", 'info')
+    }
+  }, [editing?.read]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const submitEdit = useCallback(
+    async (text: string) => {
+      if (!editingId) return false
+      const result = await onEditMessage(editingId, text)
+      if (result === 'ok') {
+        setEditingId(null)
+        return true
+      }
+      if (result === 'read') {
+        setEditingId(null)
+        onNotify("Message was seen, so it can't be edited", 'info')
+      } else {
+        onNotify("Couldn't edit the message", 'info')
+      }
+      return false
+    },
+    [editingId, onEditMessage, onNotify]
+  )
 
   const closeSheet = useCallback(() => setSheet(null), [])
   const [backdrop, setBackdrop] = useState<string | undefined>()
@@ -194,7 +282,10 @@ export function ChatScreen({
     if (!sheet) return { options: [] }
 
     if (sheet.kind === 'message') {
-      const m = sheet.message
+      // use the live copy: it may have been seen while the sheet was opening
+      const m = messages.find((x) => x.id === sheet.message.id) ?? sheet.message
+      // edit only my own text messages that haven't been seen yet
+      const canEdit = m.sender === 'me' && !m.read && !m.sharedPostId
       if (m.sharedPostId) {
         return {
           title: 'Shared post',
@@ -212,6 +303,7 @@ export function ChatScreen({
             },
           },
           { label: 'Forward', icon: 'arrow-redo-outline', onPress: () => soon('Forwarding') },
+          ...(canEdit ? [{ label: 'Edit', icon: 'create-outline' as const, onPress: () => setEditingId(m.id) }] : []),
           { label: 'Delete', icon: 'trash-outline', destructive: true, onPress: () => onDeleteMessage(m.id) },
         ],
       }
@@ -236,7 +328,7 @@ export function ChatScreen({
         { label: 'Clear chat', icon: 'trash-outline', destructive: true, onPress: onClearChat },
       ],
     }
-  }, [sheet, onNotify, soon, onDeleteMessage, onClearChat, handleProfile])
+  }, [sheet, messages, onNotify, soon, onDeleteMessage, onClearChat, handleProfile])
 
   const renderItem = useCallback(
     ({ item }: { item: Message }) => <MessageBubble item={item} onLongPress={handleBubbleLongPress} />,
@@ -244,9 +336,11 @@ export function ChatScreen({
   )
 
   return (
-    <View className="flex-1 bg-black">
+    <View className="flex-1 overflow-hidden bg-black">
+      <OrbitBackdrop />
       <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
-        {/* Header — static */}
+        {/* Header */}
+        <Animated.View entering={FadeInDown.duration(320)}>
         <Glass
           className="flex-row items-center gap-2 border-b border-white/10 px-3 pb-3"
           style={{ paddingTop: insets.top + 8 }}
@@ -269,17 +363,20 @@ export function ChatScreen({
           <IconButton name="videocam-outline" onPress={() => soon('Video calls')} compact size={19} />
           <IconButton name="ellipsis-vertical" onPress={openMenu} compact size={18} />
         </Glass>
+        </Animated.View>
 
         {/* Messages — only this part scrolls; the toast floats just above the input */}
-        <View className="flex-1">
+        <Animated.View entering={FadeIn.duration(380)} className="flex-1">
           <FlatList
             ref={listRef}
             data={data}
             inverted
             keyExtractor={(m) => m.id}
             renderItem={renderItem}
-            className="flex-1 bg-black"
+            className="flex-1"
             contentContainerClassName="gap-2.5 px-4 py-4"
+            onScroll={(e) => setShowJump(e.nativeEvent.contentOffset.y > 400)}
+            scrollEventThrottle={64}
             ListEmptyComponent={EmptyChat}
             keyboardShouldPersistTaps="handled"
             // iOS: drag down into the keyboard to dismiss it. Android: scrolling never closes it.
@@ -289,8 +386,20 @@ export function ChatScreen({
             maxToRenderPerBatch={10}
             windowSize={9}
           />
+          {/* jump back to the newest message (the list is inverted, so offset 0 is the bottom) */}
+          {showJump && (
+            <Animated.View entering={ZoomIn.duration(160)} exiting={ZoomOut.duration(140)} className="absolute bottom-3 right-4">
+              <Pressable
+                onPress={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })}
+                accessibilityLabel="Scroll to latest message"
+                className="h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-neutral-900/95 shadow-lg shadow-black active:bg-neutral-800"
+              >
+                <Ionicons name="chevron-down" size={20} color="#e5e5e5" />
+              </Pressable>
+            </Animated.View>
+          )}
           <Toast toast={toast} />
-        </View>
+        </Animated.View>
 
         {/* Input — static */}
         <Composer
@@ -298,6 +407,9 @@ export function ChatScreen({
           onSend={handleSend}
           onAttach={openAttach}
           onVoice={handleVoiceNote}
+          editing={editing}
+          onCancelEdit={cancelEdit}
+          onSubmitEdit={submitEdit}
         />
       </KeyboardAvoidingView>
 

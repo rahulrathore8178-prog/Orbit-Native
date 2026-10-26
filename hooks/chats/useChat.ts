@@ -14,6 +14,9 @@ export type Message = {
   sender: 'me' | 'them'
   time: string
   fresh?: boolean
+  /** my message was seen by the other person (only meaningful when sender === 'me') */
+  read?: boolean
+  edited?: boolean
   sharedPostId?: string
   sharedPost?: SharedPostData
 }
@@ -113,6 +116,7 @@ export function useChat({ apiUrl, selectedContact, onOffline }: Params) {
   const selectedRef = useRef<Friend | null>(null)
   const onOfflineRef = useRef(onOffline)
   const refetchRef = useRef<() => void>(() => {})
+  const markReadRef = useRef<() => void>(() => {})
   useEffect(() => {
     selectedRef.current = selectedContact
   }, [selectedContact])
@@ -156,6 +160,26 @@ export function useChat({ apiUrl, selectedContact, onOffline }: Params) {
       socket.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data)
+          const open = selectedRef.current
+          const openIds = open ? [toId(open._id), toId((open as any).id)] : []
+
+          // The other person opened the chat: all my messages to them are now seen.
+          if (data.type === 'messages-read') {
+            if (openIds.includes(toId(data.readerId))) {
+              setMessages((prev) => (prev.some((x) => x.sender === 'me' && !x.read) ? prev.map((x) => (x.sender === 'me' ? { ...x, read: true } : x)) : prev))
+            }
+            return
+          }
+
+          // A message was edited (by the other person, before I saw it).
+          if (data.type === 'message-edited') {
+            const em = data.message || {}
+            const eid = String(em.id ?? em._id ?? '')
+            if (!eid) return
+            setMessages((prev) => prev.map((x) => (x.id === eid ? { ...x, content: em.text ?? em.content ?? x.content, edited: true } : x)))
+            return
+          }
+
           if (data.type !== 'chat-message') return
 
           const m = data.message || {}
@@ -167,8 +191,6 @@ export function useChat({ apiUrl, selectedContact, onOffline }: Params) {
           if (!senderId || (!text && !share.sharedPostId)) return
           if (senderId === myId) return // ignore echoes of my own messages
 
-          const open = selectedRef.current
-          const openIds = open ? [toId(open._id), toId((open as any).id)] : []
           if (!open || !openIds.includes(senderId)) return
 
           const incoming: Message = {
@@ -180,6 +202,8 @@ export function useChat({ apiUrl, selectedContact, onOffline }: Params) {
             ...share,
           }
           setMessages((prev) => (prev.some((x) => x.id === incoming.id) ? prev : [...prev, incoming]))
+          // I'm looking at this chat right now, so the new message counts as seen.
+          markReadRef.current()
         } catch (error) {
           console.error('Chat WebSocket message error', error)
         }
@@ -235,6 +259,8 @@ export function useChat({ apiUrl, selectedContact, onOffline }: Params) {
           m.time && /[:]/.test(String(m.time)) && String(m.time).length <= 8
             ? m.time
             : formatTime(m.createdAt ?? m.timestamp ?? m.time),
+        read: m.read !== false, // old messages have no flag: treat as seen
+        edited: !!m.edited,
         ...extractShare(m),
       }
     }
@@ -290,6 +316,7 @@ export function useChat({ apiUrl, selectedContact, onOffline }: Params) {
           sender: 'me',
           time: formatTime(saved?.timestamp ?? new Date()),
           fresh: true,
+          read: false,
           ...extractShare(saved ?? { sharedPostId }),
         }
 
@@ -303,9 +330,51 @@ export function useChat({ apiUrl, selectedContact, onOffline }: Params) {
     [myId, apiUrl]
   )
 
+  // ----- Seen: tell the server I read this conversation (it notifies the sender over the socket) -----
+  const markRead = useCallback(async () => {
+    const contact = selectedRef.current
+    if (!contact) return
+    try {
+      const token = await getToken()
+      await axios.patch(`${apiUrl}/api/chat/${contact._id}/read`, {}, { headers: token ? { Authorization: `Bearer ${token}` } : undefined })
+    } catch (error) {
+      console.log('markRead failed', (error as any)?.message)
+    }
+  }, [apiUrl])
+  useEffect(() => {
+    markReadRef.current = markRead
+  }, [markRead])
+
+  // ----- Edit (only possible until the other person has seen the message) -----
+  const editMessage = useCallback(
+    async (id: string, text: string): Promise<'ok' | 'read' | 'error'> => {
+      const clean = text.trim()
+      if (!clean) return 'error'
+      try {
+        const token = await getToken()
+        await axios.patch(
+          `${apiUrl}/api/chat/${id}`,
+          { text: clean },
+          { headers: token ? { Authorization: `Bearer ${token}` } : undefined }
+        )
+        setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, content: clean, edited: true } : m)))
+        return 'ok'
+      } catch (error: any) {
+        // 400 = already seen: lock the message in the UI too
+        if (error?.response?.status === 400) {
+          setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, read: true } : m)))
+          return 'read'
+        }
+        console.error('Edit message error:', error)
+        return 'error'
+      }
+    },
+    [apiUrl]
+  )
+
   // ----- Local-only actions (TODO: wire to your API when the endpoints exist) -----
   const deleteMessage = useCallback((id: string) => setMessages((prev) => prev.filter((m) => m.id !== id)), [])
   const clearMessages = useCallback(() => setMessages([]), [])
 
-  return { messages, isConnected, sendMessage, deleteMessage, clearMessages }
+  return { messages, isConnected, sendMessage, editMessage, markRead, deleteMessage, clearMessages }
 }

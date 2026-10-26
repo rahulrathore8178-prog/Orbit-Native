@@ -117,6 +117,29 @@ export function useProfileActions({ user, posts, requests, patchUser, setPosts, 
         [posts, optimistic, setPosts]
     );
 
+    /** Hides the post from the profile (kept on the server, flagged isArchived). */
+    const archivePost = useCallback(
+        (id: string) => {
+            const prev = posts;
+            return optimistic(
+                () => setPosts((list) => list.filter((post) => post.id !== id)),
+                () => profileApi.archivePost(id, true),
+                () => setPosts(prev),
+                "Couldn't archive that post."
+            );
+        },
+        [posts, optimistic, setPosts]
+    );
+
+    /** Throws on failure on purpose: the card keeps the draft open and shows the error. */
+    const editCaption = useCallback(
+        async (id: string, content: string) => {
+            await profileApi.editCaption(id, content);
+            setPosts((list) => list.map((post) => (post.id === id ? { ...post, content } : post)));
+        },
+        [setPosts]
+    );
+
     const toggleFriend = useCallback(() => {
         if (!user) return;
 
@@ -187,6 +210,8 @@ export function useProfileActions({ user, posts, requests, patchUser, setPosts, 
         changeAvatar,
         removeAvatar,
         deletePost,
+        archivePost,
+        editCaption,
         toggleFriend,
         acceptRequest,
         rejectRequest,

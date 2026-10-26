@@ -7,7 +7,7 @@ import axios from 'axios';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import { Bookmark, ChevronLeft, ChevronRight, LogOut } from 'lucide-react-native';
+import { Archive, Bookmark, ChevronLeft, ChevronRight, LogOut } from 'lucide-react-native';
 import React, { useCallback, useState } from 'react';
 import {
     ActivityIndicator,
@@ -252,6 +252,15 @@ const Settings = () => {
                         label="Saved Posts"
                         hint="Posts you've bookmarked"
                         onPress={() => router.push('/profile/savedPosts')}
+                    />
+                </Group>
+
+                <Group title="Archived" index={1}>
+                    <SettingsRow
+                        icon={<Archive size={18} color="#e5e5e5" />}
+                        label="Archived Posts"
+                        hint="Posts you've archived"
+                        onPress={() => router.push('/profile/savedPosts/archivedPosts')}
                     />
                 </Group>
 

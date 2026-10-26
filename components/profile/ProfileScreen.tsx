@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Alert, Linking, RefreshControl, ScrollView, Share, Text, View } from 'react-native';
+import { Alert, Linking, RefreshControl, ScrollView, Share, Text, useWindowDimensions, View } from 'react-native';
 import { router } from 'expo-router';
 import { Ban, Camera, Trash2 } from 'lucide-react-native';
 import OrbitLoader from '@/components/ui/OrbitLoader';
@@ -36,8 +36,11 @@ export default function ProfileScreen({ userId }: Props) {
 
     const { user, posts, requests, postsLocked, friends, isOwn, loading, refreshing, refresh } = profile;
     const locked = postsLocked && !isOwn;
-    // Requests only exist on your own private profile.
-    const showRequests = isOwn && Boolean(user?.isPrivate);
+    // Requests tab: your own profile only.
+    const showRequests = isOwn;
+    // The pager sits inside px-5 (20 + 20), so cards must be exactly that much narrower than the screen.
+    const { width: screenWidth } = useWindowDimensions();
+    const cardWidth = screenWidth - 40;
     const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
     const [moreMenuOpen, setMoreMenuOpen] = useState(false);
     const { openComments, openShare, commentsCountFor, sheets } = usePostSheets(currentUser);
@@ -113,7 +116,9 @@ export default function ProfileScreen({ userId }: Props) {
             {user && (
                 <ScrollView
                     showsVerticalScrollIndicator={false}
-                    contentContainerStyle={{ paddingBottom: 48 }}
+                    keyboardShouldPersistTaps="handled"
+                    automaticallyAdjustKeyboardInsets
+                    contentContainerStyle={{ paddingBottom: 120 }}
                     refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor="#ffffff" />}
                 >
                     <Reveal>
@@ -175,7 +180,10 @@ export default function ProfileScreen({ userId }: Props) {
                                                     {...toPostcardProps(post, author)}
                                                     commentsCount={commentsCountFor(post.id, post.commentsCount)}
                                                     isOwn={isOwn}
-                                                    showDelete={isOwn}
+                                                    cardWidth={cardWidth}
+                                                    manageable={isOwn}
+                                                    onArchive={actions.archivePost}
+                                                    onEditCaption={actions.editCaption}
                                                     disableAuthorPress
                                                     onDelete={actions.deletePost}
                                                     onPressComments={openComments}

@@ -17,6 +17,8 @@ const ENDPOINTS = {
     updateMe: '/api/auth/user/profile', // PATCH { username?, bio?, profilePic? }
     avatar: '/api/auth/user/profile/image', // PATCH multipart "profilePic"
     deletePost: (id: string) => `/api/community/posts/${id}`, // DELETE
+    archivePost: (id: string) => `/api/community/posts/${id}/archive`, // PATCH { isArchived }
+    editCaption: (id: string) => `/api/community/posts/${id}/caption`, // PATCH { content }
     friend: (id: string) => `/api/social/friends/${id}`, // DELETE (unfriend)
     friendRequest: (id: string) => `/api/social/friend-request/${id}`, // POST send / DELETE cancel
     friendRequests: '/api/social/friend-requests', // GET incoming
@@ -83,6 +85,20 @@ export const profileApi = {
         }
     },
 
+    /** Your own archived posts (the server only returns them to the owner). */
+    async getArchivedPosts(): Promise<{ me: ProfileUser; posts: Array<ProfilePost & { likes: string[] }> }> {
+        const me = await profileApi.getMe();
+        const posts: Array<ProfilePost & { likes: string[] }> = [];
+        for (let page = 1; page <= 10; page++) {
+            const data = await request({ url: `/api/community/users/${me.id}/posts?archived=true&page=${page}&limit=20` });
+            (data.posts ?? []).forEach((raw: any) =>
+                posts.push({ ...toProfilePost(raw), likes: Array.isArray(raw.likes) ? raw.likes.map(String) : [] }),
+            );
+            if (!data.pagination?.hasMore) break;
+        }
+        return { me, posts };
+    },
+
     async getFriends(id: string): Promise<Friend[]> {
         const data = await request({ url: ENDPOINTS.friends(id) });
         const list = data.user?.friends ?? data.friends ?? (Array.isArray(data) ? data : []);
@@ -142,6 +158,10 @@ export const profileApi = {
     // the server has no DELETE for the avatar; clearing profilePic through the profile route does the same
     removeAvatar: () => request({ url: ENDPOINTS.updateMe, method: 'PATCH', data: { profilePic: '' } }),
     deletePost: (id: string) => request({ url: ENDPOINTS.deletePost(id), method: 'DELETE' }),
+    archivePost: (id: string, isArchived = true) =>
+        request({ url: ENDPOINTS.archivePost(id), method: 'PATCH', data: { isArchived } }),
+    editCaption: (id: string, content: string) =>
+        request({ url: ENDPOINTS.editCaption(id), method: 'PATCH', data: { content } }),
 
     // friendship
     addFriend: (id: string) => request({ url: ENDPOINTS.friendRequest(id), method: 'POST' }),
