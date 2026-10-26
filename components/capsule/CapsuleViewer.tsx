@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Dimensions, Modal, Platform, Share, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
@@ -46,6 +46,7 @@ type SheetState = { kind: 'comments' } | { kind: 'insights'; tab: InsightsTab } 
 
 // calm, bounce-free settle after a swipe up (comments / views)
 const SETTLE_UP = { duration: 280, easing: Easing.out(Easing.cubic) };
+const SPRING_BACK = { damping: 20, stiffness: 240 };
 
 const startIndex = (g: CapsuleGroup | undefined, ownId: string) => {
   if (!g || g.user.id === ownId) return 0;
@@ -71,6 +72,9 @@ function ViewerContent({
   onCommentAdded,
   onSend,
 }: CapsuleViewerProps) {
+  // Gesture / worklet closures and shared values don't mix with React Compiler auto-memoization.
+  'use no memo';
+
   const { width: W, height: winH } = useWindowDimensions();
   // Android's window height can leave out the system bars; the screen height is the true full height
   const H = Platform.OS === 'android' ? Math.max(winH, Dimensions.get('screen').height) : winH;
@@ -97,9 +101,10 @@ function ViewerContent({
   const [captionOpen, setCaptionOpen] = useState(false); // full caption is open -> pause the timer
   const [loadedId, setLoadedId] = useState<string | null>(null);
   const [restartTick, setRestartTick] = useState(0);
+  const [isClosing, setIsClosing] = useState(false); // state (not a ref) so the timer pause actually re-renders
   const lastSheet = useRef<SheetState>(null);
   if (sheet) lastSheet.current = sheet;
-  const closing = useRef(false);
+  const closing = useRef(false); // synchronous guard for callbacks; mirrors isClosing
   const pending = useRef<(() => void) | null>(null);
 
   const gi = groups.findIndex((g) => g.user.id === gid);
@@ -124,17 +129,18 @@ function ViewerContent({
   const axis = useSharedValue(0); // 0 undecided · 1 horizontal · 2 vertical
   const heart = useHeartBurst();
   const holding = useSharedValue(false);
+  // Visual only (rubber-band feel at the first/last group). Navigation itself never depends on these.
   const canNext = useSharedValue(false);
   const canPrev = useSharedValue(false);
 
-  useEffect(() => {
-    canNext.value = hasNextGroup;
-    canPrev.value = hasPrevGroup;
+  useLayoutEffect(() => {
+    canNext.set(hasNextGroup);
+    canPrev.set(hasPrevGroup);
   }, [hasNextGroup, hasPrevGroup, canNext, canPrev]);
 
   // ── open animation ───────────────────────────────────────
   useEffect(() => {
-    open.value = withSpring(1, CAPSULE.OPEN_SPRING);
+    open.set(withSpring(1, CAPSULE.OPEN_SPRING));
   }, [open]);
 
   // ── close animation (shrinks back into the tray pill) ────
@@ -142,6 +148,7 @@ function ViewerContent({
   const close = useCallback(() => {
     if (closing.current) return;
     closing.current = true;
+    setIsClosing(true);
     setSheet(null);
     if (!origin || gid !== startUserId) {
       ox.value = fallback.x;
@@ -225,13 +232,17 @@ function ViewerContent({
   const swipeGroup = useCallback(
     (dir: 1 | -1) => {
       const target = groups[gi + dir];
-      if (!target) return;
+      if (!target) {
+        // nothing in that direction: settle back instead of leaving the card offset
+        contentX.value = withSpring(0, SPRING_BACK);
+        return;
+      }
       slideTo(dir, () => {
         setGid(target.user.id);
         setCi(dir === 1 ? startIndex(target, currentUserId) : 0);
       });
     },
-    [groups, gi, slideTo, currentUserId],
+    [groups, gi, slideTo, currentUserId, contentX],
   );
 
   const openSwipeUpSheet = useCallback(() => {
@@ -254,7 +265,7 @@ function ViewerContent({
   // ── progress timer ───────────────────────────────────────
   const progress = useCapsuleProgress({
     duration: CAPSULE.DURATION_MS,
-    paused: !loaded || !!sheet || held || captionOpen || closing.current,
+    paused: !loaded || !!sheet || held || captionOpen || isClosing,
     resetKey: `${capsule?.id ?? ''}:${restartTick}`,
     onComplete: goNext,
   });
@@ -279,9 +290,11 @@ function ViewerContent({
 
   // ── gestures ─────────────────────────────────────────────
   // Always call the latest closures, but keep the callbacks below identity-stable
-  // so the gesture is never rebuilt mid-touch.
+  // so the gesture is never rebuilt mid-touch. The ref is written in a layout effect, never during render.
   const latest = useRef({ goNext, goPrev, swipeGroup, close, openSwipeUpSheet, handleDoubleTap });
-  latest.current = { goNext, goPrev, swipeGroup, close, openSwipeUpSheet, handleDoubleTap };
+  useLayoutEffect(() => {
+    latest.current = { goNext, goPrev, swipeGroup, close, openSwipeUpSheet, handleDoubleTap };
+  });
 
   const onNext = useCallback(() => latest.current.goNext(), []);
   const onPrev = useCallback(() => latest.current.goPrev(), []);
@@ -315,7 +328,8 @@ function ViewerContent({
         scheduleOnRN(setHeld, true);
       })
       .onFinalize(() => {
-        if (holding.value) {          // only if it actually started, so it can't get stuck
+        if (holding.value) {
+          // only if it actually started, so it can't get stuck
           holding.value = false;
           scheduleOnRN(setHeld, false);
         }
@@ -332,6 +346,7 @@ function ViewerContent({
           axis.value = Math.abs(e.translationX) > Math.abs(e.translationY) ? 1 : 2;
         }
         if (axis.value === 1) {
+          // rubber-band at the first/last group (visual only)
           const blocked =
             (e.translationX < 0 && !canNext.value) || (e.translationX > 0 && !canPrev.value);
           contentX.value = blocked ? e.translationX * 0.25 : e.translationX;
@@ -343,15 +358,16 @@ function ViewerContent({
       })
       .onEnd((e, success) => {
         if (!success) {
-          contentX.value = withSpring(0, { damping: 20, stiffness: 240 });
-          dragY.value = withSpring(0, { damping: 20, stiffness: 240 });
+          contentX.value = withSpring(0, SPRING_BACK);
+          dragY.value = withSpring(0, SPRING_BACK);
           return;
         }
         if (axis.value === 1) {
           const dx = e.translationX;
-          if ((dx < -W * 0.22 || e.velocityX < -700) && canNext.value) scheduleOnRN(onSwipe, 1);
-          else if ((dx > W * 0.22 || e.velocityX > 700) && canPrev.value) scheduleOnRN(onSwipe, -1);
-          else contentX.value = withSpring(0, { damping: 20, stiffness: 240 });
+          // Always ask JS to navigate; swipeGroup() decides (and springs back if there is no neighbour).
+          if (dx < -W * 0.22 || e.velocityX < -700) scheduleOnRN(onSwipe, 1);
+          else if (dx > W * 0.22 || e.velocityX > 700) scheduleOnRN(onSwipe, -1);
+          else contentX.value = withSpring(0, SPRING_BACK);
         } else if (axis.value === 2) {
           if (e.translationY > 110 || e.velocityY > 900) {
             scheduleOnRN(onDismiss);
@@ -359,9 +375,7 @@ function ViewerContent({
             if (e.translationY < -70 || e.velocityY < -900) scheduleOnRN(onSwipeUp);
             // swipe up settles calmly (no bounce); a short pull down still springs back
             dragY.value =
-              e.translationY < 0
-                ? withTiming(0, SETTLE_UP)
-                : withSpring(0, { damping: 20, stiffness: 240 });
+              e.translationY < 0 ? withTiming(0, SETTLE_UP) : withSpring(0, SPRING_BACK);
           }
         }
       })

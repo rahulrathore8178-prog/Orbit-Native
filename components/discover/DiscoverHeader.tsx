@@ -1,10 +1,11 @@
-import { memo } from "react";
+import { memo, useCallback } from "react";
 import { Text, View } from "react-native";
 import Animated, { FadeIn } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DISCOVER_RADIUS_M } from "./constants";
 import { GlassCard } from "./GlassCard";
 import { NeoIconButton } from "./NeoIconButton";
+import { useRouter } from "expo-router";
 
 type Props = {
   count: number;
@@ -13,7 +14,17 @@ type Props = {
   onReload: () => void;
 };
 
+
 function DiscoverHeaderBase({ count, isScanning, onBackPress, onReload }: Props) {
+  const router = useRouter();
+
+  const handleBack = useCallback(() => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace("/(tabs)/home");
+    }
+  }, [router]);
   const insets = useSafeAreaInsets();
   const subtitle = isScanning
     ? `Scanning ${DISCOVER_RADIUS_M} m around you…`
@@ -25,7 +36,7 @@ function DiscoverHeaderBase({ count, isScanning, onBackPress, onReload }: Props)
     <View className="px-4 pb-3" style={{ paddingTop: insets.top + 8 }}>
       <GlassCard blur radius={28}>
         <View className="flex-row items-center px-3 py-3">
-          <NeoIconButton icon="arrow-back" onPress={onBackPress} />
+          <NeoIconButton icon="arrow-back" onPress={handleBack} />
           <View className="flex-1 mx-3">
             <Text className="text-white text-lg font-bold">Discover</Text>
             <Animated.Text key={subtitle} entering={FadeIn.duration(250)} className="text-neutral-400 text-xs mt-0.5">

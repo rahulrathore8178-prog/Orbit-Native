@@ -6,10 +6,12 @@ import * as ImagePicker from 'expo-image-picker';
 import { profileApi } from '@/components/services/profileApi';
 import { ProfileState } from './useProfile';
 import { FriendStatus } from '@/components/profile/profile';
+import { AppDispatch } from '@/redux/store';
+import { fetchFriends } from '@/redux/slice/friends';
 
 /** All profile mutations. UI updates instantly, then rolls back if the server refuses. */
-export function useProfileActions({ user, posts, patchUser, setPosts }: ProfileState) {
-    const dispatch = useDispatch();
+export function useProfileActions({ user, posts, requests, patchUser, setPosts, setRequests }: ProfileState) {
+    const dispatch = useDispatch<AppDispatch>();
     const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
 
     const optimistic = useCallback(
@@ -115,11 +117,34 @@ export function useProfileActions({ user, posts, patchUser, setPosts }: ProfileS
         [posts, optimistic, setPosts]
     );
 
+    /** Hides the post from the profile (kept on the server, flagged isArchived). */
+    const archivePost = useCallback(
+        (id: string) => {
+            const prev = posts;
+            return optimistic(
+                () => setPosts((list) => list.filter((post) => post.id !== id)),
+                () => profileApi.archivePost(id, true),
+                () => setPosts(prev),
+                "Couldn't archive that post."
+            );
+        },
+        [posts, optimistic, setPosts]
+    );
+
+    /** Throws on failure on purpose: the card keeps the draft open and shows the error. */
+    const editCaption = useCallback(
+        async (id: string, content: string) => {
+            await profileApi.editCaption(id, content);
+            setPosts((list) => list.map((post) => (post.id === id ? { ...post, content } : post)));
+        },
+        [setPosts]
+    );
+
     const toggleFriend = useCallback(() => {
         if (!user) return;
 
         const previous = (user.friendStatus ?? 'none') as FriendStatus;
-        // Nothing to toggle on your own profile; incoming requests need an accept flow.
+        // Nothing to toggle on your own profile; incoming requests are handled in the Requests tab.
         if (previous === 'self' || previous === 'request_received') return;
 
         const undoing = previous === 'friends' || previous === 'request_sent';
@@ -135,6 +160,36 @@ export function useProfileActions({ user, posts, patchUser, setPosts }: ProfileS
             "Couldn't update your friendship."
         );
     }, [user, optimistic, patchUser]);
+
+    /** Accepts an incoming request. `requestId` is the request's own id, not the user's. */
+    const acceptRequest = useCallback(
+        (requestId: string) => {
+            const prev = requests;
+            return optimistic(
+                () => setRequests((list) => list.filter((r) => r.requestId !== requestId)),
+                async () => {
+                    await profileApi.acceptRequest(requestId);
+                    dispatch(fetchFriends()); // the new friend shows up in the Friends tab
+                },
+                () => setRequests(prev),
+                "Couldn't accept that request."
+            );
+        },
+        [requests, optimistic, setRequests, dispatch]
+    );
+
+    const rejectRequest = useCallback(
+        (requestId: string) => {
+            const prev = requests;
+            return optimistic(
+                () => setRequests((list) => list.filter((r) => r.requestId !== requestId)),
+                () => profileApi.rejectRequest(requestId),
+                () => setRequests(prev),
+                "Couldn't decline that request."
+            );
+        },
+        [requests, optimistic, setRequests]
+    );
 
     const blockUser = useCallback(async () => {
         if (!user) return;
@@ -155,7 +210,11 @@ export function useProfileActions({ user, posts, patchUser, setPosts }: ProfileS
         changeAvatar,
         removeAvatar,
         deletePost,
+        archivePost,
+        editCaption,
         toggleFriend,
+        acceptRequest,
+        rejectRequest,
         blockUser,
     };
 }

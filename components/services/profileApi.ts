@@ -1,26 +1,30 @@
-import { Friend, ProfilePost, ProfileUser } from '@/components/profile/profile';
+import { Friend, FriendRequest, ProfilePost, ProfileUser } from '@/components/profile/profile';
 import { API_URL } from '@/lib/utils';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios, { AxiosRequestConfig } from 'axios';
 import { Platform } from 'react-native';
-import { resolveUri, toFriend, toProfilePost, toProfileUser } from './profileMappers';
+import { resolveUri, toFriend, toFriendRequest, toProfilePost, toProfileUser } from './profileMappers';
 import { authStorage } from '@/lib/auth/authStorage';
 
 /* -------------------------------------------------------------------------- */
-/*  ROUTES: the ones marked CHECK are guesses. Compare them with your backend */
-/*  routes file (method AND path) and edit only this block.                   */
+/*  ROUTES: checked against server/src/routes (auth, social, community).      */
 /* -------------------------------------------------------------------------- */
 const ENDPOINTS = {
     me: '/api/auth/user/me',
     user: (id: string) => `/api/auth/user/${id}/public`,
     friends: (id: string) => `/api/auth/user/${id}/public`,
     userPosts: (id: string) => `/api/community/users/${id}/posts?page=1&limit=20`,
-    updateMe: '/api/auth/user/me', // CHECK  PATCH { username?, bio? }
-    avatar: '/api/auth/user/profile/image', // CHECK  PUT multipart "avatar" / DELETE
-    deletePost: (id: string) => `/api/community/posts/${id}`, // CHECK  DELETE
-    friend: (id: string) => `/api/community/friends/${id}`, // CHECK  DELETE (unfriend)
-    friendRequest: (id: string) => `/api/social/friend-request/${id}`, // CHECK  POST send / DELETE cancel
-    block: (id: string) => `/api/community/users/${id}/block`, // CHECK  POST
+    updateMe: '/api/auth/user/profile', // PATCH { username?, bio?, profilePic? }
+    avatar: '/api/auth/user/profile/image', // PATCH multipart "profilePic"
+    deletePost: (id: string) => `/api/community/posts/${id}`, // DELETE
+    archivePost: (id: string) => `/api/community/posts/${id}/archive`, // PATCH { isArchived }
+    editCaption: (id: string) => `/api/community/posts/${id}/caption`, // PATCH { content }
+    friend: (id: string) => `/api/social/friends/${id}`, // DELETE (unfriend)
+    friendRequest: (id: string) => `/api/social/friend-request/${id}`, // POST send / DELETE cancel
+    friendRequests: '/api/social/friend-requests', // GET incoming
+    acceptRequest: (requestId: string) => `/api/social/friend-request/${requestId}/accept`, // POST
+    rejectRequest: (requestId: string) => `/api/social/friend-request/${requestId}/reject`, // POST
+    block: (id: string) => `/api/social/block/${id}`, // POST
 };
 
 /* -------------------------------------------------------------------------- */
@@ -61,7 +65,6 @@ export const profileApi = {
 
     async getUser(id: string): Promise<ProfileUser> {
         const data = await request({ url: ENDPOINTS.user(id) });
-        console.log('getUser data', data)
         return toProfileUser(data.user ?? data);
     },
 
@@ -82,10 +85,30 @@ export const profileApi = {
         }
     },
 
+    /** Your own archived posts (the server only returns them to the owner). */
+    async getArchivedPosts(): Promise<{ me: ProfileUser; posts: Array<ProfilePost & { likes: string[] }> }> {
+        const me = await profileApi.getMe();
+        const posts: Array<ProfilePost & { likes: string[] }> = [];
+        for (let page = 1; page <= 10; page++) {
+            const data = await request({ url: `/api/community/users/${me.id}/posts?archived=true&page=${page}&limit=20` });
+            (data.posts ?? []).forEach((raw: any) =>
+                posts.push({ ...toProfilePost(raw), likes: Array.isArray(raw.likes) ? raw.likes.map(String) : [] }),
+            );
+            if (!data.pagination?.hasMore) break;
+        }
+        return { me, posts };
+    },
+
     async getFriends(id: string): Promise<Friend[]> {
         const data = await request({ url: ENDPOINTS.friends(id) });
         const list = data.user?.friends ?? data.friends ?? (Array.isArray(data) ? data : []);
         return list.map(toFriend);
+    },
+
+    /** Incoming friend requests for the logged-in user. */
+    async getFriendRequests(): Promise<FriendRequest[]> {
+        const data = await request({ url: ENDPOINTS.friendRequests });
+        return (data.requests ?? []).map(toFriendRequest).filter((r: FriendRequest) => r.requestId && r.user.id);
     },
 
     updateMe: (patch: { username?: string; bio?: string }) =>
@@ -126,19 +149,26 @@ export const profileApi = {
 
             const data = response.data;
             return resolveUri(data.profilePic ?? data.user?.profilePic);
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error uploading avatar:', error);
-            console.error('Error details:', error.response?.data ?? error.message);
+            console.error('Error details:', error?.response?.data ?? error?.message);
         }
     },
 
-    removeAvatar: () => request({ url: ENDPOINTS.avatar, method: 'DELETE' }),
+    // the server has no DELETE for the avatar; clearing profilePic through the profile route does the same
+    removeAvatar: () => request({ url: ENDPOINTS.updateMe, method: 'PATCH', data: { profilePic: '' } }),
     deletePost: (id: string) => request({ url: ENDPOINTS.deletePost(id), method: 'DELETE' }),
+    archivePost: (id: string, isArchived = true) =>
+        request({ url: ENDPOINTS.archivePost(id), method: 'PATCH', data: { isArchived } }),
+    editCaption: (id: string, content: string) =>
+        request({ url: ENDPOINTS.editCaption(id), method: 'PATCH', data: { content } }),
 
     // friendship
     addFriend: (id: string) => request({ url: ENDPOINTS.friendRequest(id), method: 'POST' }),
     cancelRequest: (id: string) => request({ url: ENDPOINTS.friendRequest(id), method: 'DELETE' }),
     removeFriend: (id: string) => request({ url: ENDPOINTS.friend(id), method: 'DELETE' }),
+    acceptRequest: (requestId: string) => request({ url: ENDPOINTS.acceptRequest(requestId), method: 'POST' }),
+    rejectRequest: (requestId: string) => request({ url: ENDPOINTS.rejectRequest(requestId), method: 'POST' }),
 
     blockUser: (id: string) => request({ url: ENDPOINTS.block(id), method: 'POST' }),
 };

@@ -12,21 +12,44 @@ type ThunkConfig = { rejectValue: DiscoverError; state: { discover: DiscoverStat
  * permission -> GPS -> API (+ min radar time). One dispatch does the whole scan.
  * `condition` blocks double-taps while a scan is already running.
  */
+const CONSENT_MESSAGE =
+  "Explicit location consent is required — or turn on your location to discover people nearby.";
+
 export const discoverNearby = createAsyncThunk<NearbyUser[], void, ThunkConfig>(
   "discover/nearby",
   async (_, { rejectWithValue }) => {
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== "granted") {
+    // 1. permission: asks again on every scan unless the OS has blocked prompting
+    let perm = await Location.getForegroundPermissionsAsync();
+    if (perm.status !== "granted") perm = await Location.requestForegroundPermissionsAsync();
+    if (perm.status !== "granted") {
       return rejectWithValue({
-        code: "PERMISSION_DENIED",
-        message: "Allow location access so we can find people within 500 m of you.",
+        code: perm.canAskAgain ? "PERMISSION_DENIED" : "PERMISSION_BLOCKED",
+        message: CONSENT_MESSAGE,
       });
     }
 
-    let pos: Location.LocationObject;
+    // 2. is location (GPS) switched on? On Android this shows the system "turn on location" dialog
+    if (!(await Location.hasServicesEnabledAsync())) {
+      try { await Location.enableNetworkProviderAsync(); } catch {}
+      if (!(await Location.hasServicesEnabledAsync())) {
+        return rejectWithValue({
+          code: "LOCATION_OFF",
+          message: "Turn on your location to discover people nearby.",
+        });
+      }
+    }
+
+    // 3. position, with a timeout and a last-known fallback so it never hangs
+    let pos: Location.LocationObject | null = null;
     try {
-      pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      pos = await Promise.race([
+        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+        new Promise<never>((_, rej) => setTimeout(() => rej(new Error("timeout")), 10000)),
+      ]);
     } catch {
+      pos = await Location.getLastKnownPositionAsync();
+    }
+    if (!pos) {
       return rejectWithValue({
         code: "LOCATION_UNAVAILABLE",
         message: "We couldn't get your location. Check that GPS is on and try again.",
@@ -38,12 +61,16 @@ export const discoverNearby = createAsyncThunk<NearbyUser[], void, ThunkConfig>(
         discoverApi.nearby({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
         sleep(MIN_SCAN_MS),
       ]);
-      console.log('discover raw response:', JSON.stringify(data).slice(0, 300));
       return data.nearbyUsers;
-    } catch {
+    } catch (e: any) {
+      const status = e.response?.status;
+      const serverMsg: string = e.response?.data?.message ?? "";
+      if (status === 400 && /consent/i.test(serverMsg)) {
+        return rejectWithValue({ code: "CONSENT_REQUIRED", message: CONSENT_MESSAGE });
+      }
       return rejectWithValue({
-        code: "NETWORK",
-        message: "Couldn't reach the server. Check your connection and try again.",
+        code: !e.response ? "NETWORK" : status === 400 ? "BAD_REQUEST" : "SERVER",
+        message: serverMsg || "Couldn't reach the server. Check your connection and try again.",
       });
     }
   },

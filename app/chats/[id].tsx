@@ -27,7 +27,7 @@ export default function ConversationRoute() {
     () => showToast('Not connected. Check your internet connection.', 'offline'),
     [showToast]
   )
-  const { messages, isConnected, sendMessage, deleteMessage, clearMessages } = useChat({
+  const { messages, isConnected, sendMessage, editMessage, deleteMessage, clearMessages } = useChat({
     apiUrl: API_URL,
     selectedContact: contact,
     onOffline: handleOffline,
@@ -35,14 +35,23 @@ export default function ConversationRoute() {
 
   const goBack = useCallback(() => router.back(), [])
 
-  // TODO: point this at your real profile route.
+  // same route the Messages tab uses
   const openProfile = useCallback((c: Friend) => {
-    router.push(`/profile/${c._id}` as any)
+    router.push({ pathname: '/user/[id]', params: { id: c._id } } as any)
   }, [])
 
   return (
     <>
-      <Stack.Screen options={{ headerShown: false, animation: 'slide_from_right' }} />
+      <Stack.Screen
+        options={{
+          headerShown: false,
+          animation: 'slide_from_right',
+          animationDuration: 300,
+          gestureEnabled: true,
+          fullScreenGestureEnabled: true, // swipe back from anywhere, not just the edge
+          contentStyle: { backgroundColor: '#000' }, // no white flash while the screen slides
+        }}
+      />
       {contact ? (
         <ChatScreen
           contact={contact}
@@ -51,6 +60,7 @@ export default function ConversationRoute() {
           toast={toast}
           onBack={goBack}
           onSend={sendMessage}
+          onEditMessage={editMessage}
           onOpenProfile={openProfile}
           onDeleteMessage={deleteMessage}
           onClearChat={clearMessages}

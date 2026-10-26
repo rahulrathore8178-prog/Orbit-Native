@@ -9,6 +9,7 @@ import discoverReducer from './slice/discoverSlice';
 import savedPostsReducer from './slice/savedPostsSlice'; 
 import createPostReducer from './slice/createPost/createPostSlice';
 import notificationsReducer from './slice/notifications/notificationsSlice';
+import archivedPostsReducer from'./slice/archivedPosts/archivedPostsSlice'
 
 const appReducer = combineReducers({
   auth: authReducer,
@@ -19,6 +20,7 @@ const appReducer = combineReducers({
   savedPosts: savedPostsReducer,
   createPost: createPostReducer,
   notifications: notificationsReducer,
+  archivedPosts: archivedPostsReducer,
 });
 
 // On logout, wipe every slice so the next user never sees the previous user's chats, friends or profile.

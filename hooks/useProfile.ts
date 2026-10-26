@@ -1,18 +1,21 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useSelector } from 'react-redux';
-import { RootState } from '@/redux/store';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
+import { useDispatch, useSelector } from 'react-redux';
+import { AppDispatch, RootState } from '@/redux/store';
 import { fetchFriends } from '@/redux/slice/friends';
 import { profileApi } from '@/components/services/profileApi';
 import { toFriend } from '@/components/services/profileMappers';
-import { Friend, ProfilePost, ProfileUser } from '@/components/profile/profile';
+import { Friend, FriendRequest, ProfilePost, ProfileUser } from '@/components/profile/profile';
 
 /**
  * Loads one profile. Data lives in local state (not the shared redux slice) so the
  * profile tab and a pushed /user/[id] page can never overwrite each other.
  */
 export function useProfile(userId?: string) {
+    const dispatch = useDispatch<AppDispatch>();
     const [user, setUser] = useState<ProfileUser | null>(null);
     const [posts, setPosts] = useState<ProfilePost[]>([]);
+    const [requests, setRequests] = useState<FriendRequest[]>([]);
     const [postsLocked, setPostsLocked] = useState(false); // private profile and not friends
     const [otherFriends, setOtherFriends] = useState<Friend[]>([]);
     const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -34,6 +37,16 @@ export function useProfile(userId?: string) {
             // so the header still loads and we just show the "private" notice.
             const { posts: nextPosts, locked } = await profileApi.getPostsGuarded(target.id);
 
+            // Incoming friend requests: only ever loaded for your own profile.
+            // They are an extra: if they fail, the rest of the profile must still show.
+            const nextRequests =
+                isSelf
+                    ? await profileApi.getFriendRequests().catch((e) => {
+                        console.error('Error loading friend requests:', e);
+                        return [] as FriendRequest[];
+                    })
+                    : [];
+
             setUser(target);
             setPostsLocked(!isSelf && locked);
             setPosts(
@@ -42,6 +55,7 @@ export function useProfile(userId?: string) {
                     isLikedByCurrentUser: p.isLikedByCurrentUser ?? !!p.likedBy?.includes(me.id),
                 })),
             );
+            setRequests(nextRequests);
             setOtherFriends(isSelf || locked ? [] : target.friends ?? []);
         } catch (error) {
             console.error('Error loading profile:', error);
@@ -57,6 +71,15 @@ export function useProfile(userId?: string) {
         load();
     }, [load]);
 
+    // Coming back (e.g. after unarchiving a post) refreshes quietly, with no spinner. Skips the first focus.
+    const focusedOnce = useRef(false);
+    useFocusEffect(
+        useCallback(() => {
+            if (focusedOnce.current) load();
+            focusedOnce.current = true;
+        }, [load]),
+    );
+
     // Once a friend request is accepted/you become friends, unlock without a manual refresh.
     const friendStatus = user?.friendStatus;
     useEffect(() => {
@@ -64,9 +87,9 @@ export function useProfile(userId?: string) {
     }, [friendStatus, postsLocked, load]);
 
     useEffect(() => {
-        // own friends still come from redux; if fetchFriends is a createAsyncThunk, use dispatch(fetchFriends())
-        if (!userId) fetchFriends();
-    }, [userId]);
+        // own friends come from redux
+        if (!userId) dispatch(fetchFriends());
+    }, [userId, dispatch]);
 
     const friends = useMemo(
         () => (isOwn ? ownFriends.map(toFriend) : otherFriends),
@@ -83,7 +106,20 @@ export function useProfile(userId?: string) {
         load();
     }, [load]);
 
-    return { user, posts, postsLocked, friends, isOwn, loading, refreshing, refresh, patchUser, setPosts };
+    return {
+        user,
+        posts,
+        requests,
+        postsLocked,
+        friends,
+        isOwn,
+        loading,
+        refreshing,
+        refresh,
+        patchUser,
+        setPosts,
+        setRequests,
+    };
 }
 
 export type ProfileState = ReturnType<typeof useProfile>;

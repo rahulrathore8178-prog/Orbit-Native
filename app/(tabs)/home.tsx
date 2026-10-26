@@ -51,54 +51,55 @@ type HeaderProps = {
 
 const HomeHeader = ({ blurTarget, topInset, onLayoutHeight, onOpenMenu, tabs, currentUser }: HeaderProps) => {
     console.log('currentUserProps', getDisplayImageUrl(currentUser?.profilePic));
-return (
-    <View className="absolute inset-x-0 top-0 z-20" onLayout={(e) => onLayoutHeight(e.nativeEvent.layout.height)}>
-        <FrostedGlass blurTarget={blurTarget} intensity={80} className="rounded-b-[28px] border-b">
-            <View style={{ paddingTop: topInset }}>
-                <View className="flex-row items-center px-4 pb-3 pt-2">
-                    {/* <Pressable onPress={onOpenMenu} hitSlop={8} accessibilityLabel="Open menu" className="w-9">
+    return (
+        <View className="absolute inset-x-0 top-0 z-20" onLayout={(e) => onLayoutHeight(e.nativeEvent.layout.height)}>
+            <FrostedGlass blurTarget={blurTarget} intensity={80} className="rounded-b-[28px] border-b">
+                <View style={{ paddingTop: topInset }}>
+                    <View className="flex-row items-center px-4 pb-3 pt-2">
+                        {/* <Pressable onPress={onOpenMenu} hitSlop={8} accessibilityLabel="Open menu" className="w-9">
                         <MenuIcon color="white" size={32} />
                     </Pressable> */}
-                    <Pressable
-                        onPress={onOpenMenu} 
-                        accessibilityLabel="Open profile"
-                        className="w-10 h-10 rounded-full overflow-hidden"
-                    >
-                        {currentUser?.profilePic ? (
-                            <Image
-                                source={{ uri: getDisplayImageUrl(currentUser.profilePic) }}
-                                className="w-full h-full"
-                                resizeMode="cover"
-                            />
-                        ) : (
-                            <View className="w-full h-full bg-gray-500" />
-                        )}
-                    </Pressable>
-
-                    <View className="flex-1 py-2">
-                        <Text
-                            className="text-center text-2xl font-bold tracking-widest text-white/90"
-                            style={{
-                                textShadowColor: 'rgba(255,255,255,0.45)',
-                                textShadowOffset: { width: 0, height: 0 },
-                                textShadowRadius: 12,
-                            }}
+                        <Pressable
+                            onPress={onOpenMenu}
+                            accessibilityLabel="Open profile"
+                            className="w-10 h-10 rounded-full overflow-hidden"
                         >
-                            Orbit
-                        </Text>
+                            {currentUser?.profilePic ? (
+                                <Image
+                                    source={{ uri: getDisplayImageUrl(currentUser.profilePic) }}
+                                    className="w-full h-full"
+                                    resizeMode="cover"
+                                />
+                            ) : (
+                                <View className="w-full h-full bg-gray-500" />
+                            )}
+                        </Pressable>
+
+                        <View className="flex-1 py-2">
+                            <Text
+                                className="text-center text-2xl font-bold tracking-widest text-white/90"
+                                style={{
+                                    textShadowColor: 'rgba(255,255,255,0.45)',
+                                    textShadowOffset: { width: 0, height: 0 },
+                                    textShadowRadius: 12,
+                                }}
+                            >
+                                Orbit
+                            </Text>
+                        </View>
+
+                        <View className="w-9" />
+                        <NotificationBell />
                     </View>
 
-                    <View className="w-9" />
-                    <NotificationBell />
+                    <View className="items-center px-4 pb-3">
+                        <FeedTabs position={tabs.position} active={tabs.tab} onSelect={tabs.goTo} />
+                    </View>
                 </View>
-
-                <View className="items-center px-4 pb-3">
-                    <FeedTabs position={tabs.position} active={tabs.tab} onSelect={tabs.goTo} />
-                </View>
-            </View>
-        </FrostedGlass>
-    </View>
-)}
+            </FrostedGlass>
+        </View>
+    )
+}
 
 /* ------------------------------ screen -------------------------------- */
 
@@ -163,24 +164,24 @@ export default function HomeScreen() {
         ({ item }: { item: PostcardProps }) => (
             <Postcard
                 {...item}
-                isVisible={tabs.tab === 0 && item.id === yours.visibleId}
+                isVisible={tabs.tab === 0}
                 onPressComments={() => setCommentsPostId(item.id)}
                 onClickShare={share.open}
             />
         ),
-        [yours.visibleId, tabs.tab, share.open],
+        [tabs.tab, share.open],
     );
 
     const renderOrbitalItem = useCallback(
         ({ item }: { item: PostcardProps }) => (
             <Postcard
                 {...item}
-                isVisible={tabs.tab === 1 && item.id === orbitals.visibleId}
+                isVisible={tabs.tab === 1}
                 onPressComments={() => setCommentsPostId(item.id)}
                 onClickShare={share.open}
             />
         ),
-        [orbitals.visibleId, tabs.tab, share.open],
+        [tabs.tab, share.open],
     );
 
     return (
@@ -208,6 +209,10 @@ export default function HomeScreen() {
                                 ListEmptyComponent={
                                     feed.loading ? null : <Text className="mt-8 text-center text-white/60">No posts yet.</Text>
                                 }
+                                onEndReached={() => {
+                                    if (!feed.loading && !feed.loadingMore && feed.hasMore) feed.loadMore();
+                                }}
+                                onEndReachedThreshold={1}
                             />
 
                             {/* page 2: Orbitals (data, refresh, paging, empty states live in useOrbitalFeed) */}

@@ -21,11 +21,20 @@ client.interceptors.request.use(async (config) => {
 export const discoverApi = {
   // Saves my position AND returns people within the radius (server clamps radius to 500 m)
   nearby: async (coords: Coordinates): Promise<DiscoverResponse> => {
+      const payload = { ...coords, radius: DISCOVER_RADIUS_M };
+    try {
     const { data } = await client.post<DiscoverResponse>("/discover/nearby", {
       ...coords,
       radius: DISCOVER_RADIUS_M,
+      consent: true, // server will convert to lat/lng if not already
     });
     return data;
+  } catch (error: any) {
+    console.log("[DISCOVER 400] sent:", JSON.stringify(payload));
+    console.log("[DISCOVER 400] status:", error.response?.status);
+    console.log("[DISCOVER 400] server said:", JSON.stringify(error.response?.data));
+    throw error;
+  }
   },
 
   sendFriendRequest: async (userId: string): Promise<void> => {

@@ -1,31 +1,36 @@
 import React, { useEffect, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import Animated, { Easing, SharedValue, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { GlassPanel } from '@/components/ui/neo';
 import { ProfileTabKey } from '@/components/profile/profile';
 
-const TABS: { key: ProfileTabKey; label: string }[] = [
-  { key: 'posts', label: 'Posts' },
-  { key: 'friends', label: 'Friends' },
-];
-
-type Props = {
-  active: ProfileTabKey;
-  onChange: (tab: ProfileTabKey) => void;
-  counts: Record<ProfileTabKey, number>;
+export const TAB_LABELS: Record<ProfileTabKey, string> = {
+  posts: 'Posts',
+  friends: 'Friends',
+  requests: 'Requests',
 };
 
-export default function ProfileTabs({ active, onChange, counts }: Props) {
+type Props = {
+  /** Tabs to show, in order. Orbitals/Requests are decided by the screen. */
+  tabs: ProfileTabKey[];
+  active: ProfileTabKey;
+  onChange: (tab: ProfileTabKey) => void;
+  counts: Partial<Record<ProfileTabKey, number>>;
+  /** Passed by the screen for the swipe pager; the pill animates from `active`, so this is unused here. */
+  progress?: SharedValue<number>;
+};
+
+export default function ProfileTabs({ tabs, active, onChange, counts }: Props) {
   const [width, setWidth] = useState(0);
   const index = useSharedValue(0);
-  const tabWidth = width / TABS.length;
+  const tabWidth = width / tabs.length;
 
   useEffect(() => {
-    index.value = withTiming(TABS.findIndex((t) => t.key === active), {
+    index.value = withTiming(Math.max(0, tabs.indexOf(active)), {
       duration: 240,
       easing: Easing.out(Easing.cubic),
     });
-  }, [active, index]);
+  }, [active, tabs, index]);
 
   const slide = useAnimatedStyle(() => ({ transform: [{ translateX: index.value * tabWidth }] }));
 
@@ -38,7 +43,7 @@ export default function ProfileTabs({ active, onChange, counts }: Props) {
           </Animated.View>
         )}
 
-        {TABS.map(({ key, label }) => {
+        {tabs.map((key) => {
           const isActive = key === active;
           return (
             <Pressable
@@ -46,10 +51,15 @@ export default function ProfileTabs({ active, onChange, counts }: Props) {
               onPress={() => onChange(key)}
               accessibilityRole="tab"
               accessibilityState={{ selected: isActive }}
-              className="flex-1 flex-row items-center justify-center gap-1.5 py-2.5"
+              className="flex-1 flex-row items-center justify-center gap-1 py-2.5"
             >
-              <Text className="text-sm font-bold text-white">{counts[key]}</Text>
-              <Text className={`text-sm ${isActive ? 'font-medium text-white' : 'text-neutral-500'}`}>{label}</Text>
+              <Text className="text-sm font-bold text-white">{counts[key] ?? 0}</Text>
+              <Text
+                numberOfLines={1}
+                className={`text-sm ${isActive ? 'font-medium text-white' : 'text-neutral-500'}`}
+              >
+                {TAB_LABELS[key]}
+              </Text>
             </Pressable>
           );
         })}

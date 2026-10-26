@@ -1,5 +1,5 @@
 import type { OrbitalFeed } from '@/hooks/feed/useOrbitalFeed';
-import { ComponentProps, useCallback, useEffect } from 'react';
+import { ComponentProps, useCallback, useEffect, useMemo } from 'react';
 import { ActivityIndicator, ListRenderItem, Pressable, Text, View } from 'react-native';
 import Reanimated, {
     useAnimatedStyle,
@@ -110,22 +110,39 @@ export function OrbitalFeedList<T extends OrbitalPost>({ feed, renderItem, listP
         [renderItem]
     );
 
+const footer = useMemo(() => {
+    if (feed.posts.length === 0) return null; // skeleton / empty states handle themselves
     return (
-        <Reanimated.FlatList
-            {...listProps}
-            data={feed.posts}
-            keyExtractor={keyExtractor}
-            renderItem={renderWithOrbital}
-            refreshing={feed.refreshing}
-            onRefresh={feed.refresh}
-            progressViewOffset={topInset}
-            contentContainerStyle={{ paddingTop: topInset + 12, paddingBottom: 12 }}
-            onEndReached={feed.hasMore ? feed.loadMore : undefined}
-            onEndReachedThreshold={0.6}
-            ListEmptyComponent={
-                <FeedEmpty loading={feed.loading} error={feed.error} onRetry={feed.retry} onBrowse={onBrowse} />
-            }
-            ListFooterComponent={feed.loadingMore ? <ActivityIndicator className="py-6" color="#a3a3a3" /> : null}
-        />
+        <View className="items-center py-6">
+            {feed.loadingMore ? (
+                <ActivityIndicator color="#a3a3a3" />
+            ) : !feed.hasMore ? (
+                <Text className="text-xs text-white/40">You&apos;re all caught up</Text>
+            ) : null}
+        </View>
     );
+}, [feed.loadingMore, feed.hasMore, feed.posts.length]);
+
+return (
+    <Reanimated.FlatList
+        initialNumToRender={3}
+        maxToRenderPerBatch={4}
+        windowSize={7}
+        {...listProps}
+        data={feed.posts}
+        keyExtractor={keyExtractor}
+        renderItem={renderWithOrbital}
+        refreshing={feed.refreshing}
+        onRefresh={feed.refresh}
+        
+        progressViewOffset={topInset}
+        contentContainerStyle={{ paddingTop: topInset + 12, paddingBottom: 12 }}
+        onEndReached={feed.hasMore ? feed.loadMore : undefined}
+        onEndReachedThreshold={1.5}
+        ListEmptyComponent={
+            <FeedEmpty loading={feed.loading} error={feed.error} onRetry={feed.retry} onBrowse={onBrowse} />
+        }
+        ListFooterComponent={footer}
+    />
+);
 }

@@ -21,6 +21,7 @@ export type SavedCard = Pick<
     | 'commentsCount'
     | 'isLikedByCurrentUser'
     | 'isSaved'
+    | 'orbital'
 >;
 
 export interface SavedItem {
@@ -95,6 +96,11 @@ const normalize = (entry: any, uid: string | null): SavedItem => {
             commentsCount,
             isLikedByCurrentUser: !!uid && likes.includes(uid),
             isSaved: true,
+            // set when the post belongs to an orbital (the server populates name + image)
+            orbital:
+                p.orbital && typeof p.orbital === 'object' && p.orbital.name
+                    ? { id: p.orbital._id, name: p.orbital.name, image: p.orbital.image || undefined }
+                    : undefined,
         } as SavedCard,
     };
     console.log('[saved card]', item.card.image);

@@ -287,4 +287,4 @@ export default function OrbitalsScreen({
             <CreateOrbital showButton={swipe.index === 2} bottomOffset={insets.bottom + 24} onCreated={() => refresh()} />
         </View>
     );
-} 
+}

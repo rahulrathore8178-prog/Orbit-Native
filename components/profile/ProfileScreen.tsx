@@ -1,5 +1,5 @@
-import React, { useCallback, useMemo, useState } from 'react';
-import { Alert, Linking, RefreshControl, ScrollView, Share, Text, View } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { Alert, Linking, RefreshControl, ScrollView, Share, Text, useWindowDimensions, View } from 'react-native';
 import { router } from 'expo-router';
 import { Ban, Camera, Trash2 } from 'lucide-react-native';
 import OrbitLoader from '@/components/ui/OrbitLoader';
@@ -8,7 +8,7 @@ import Reveal from '@/components/options/Reveal';
 import { useOpenProfile } from '@/hooks/useOpenProfile';
 import { useProfile } from '@/hooks/useProfile';
 import { useProfileActions } from '@/hooks/useProfileActions';
-import { Friend, ProfilePost, ProfileTabKey } from '@/components/profile/profile';
+import { ProfilePost, ProfileTabKey } from '@/components/profile/profile';
 import FriendsList from './FriendsList';
 import OrbitalAvatar from './OrbitalAvatar';
 import Postcard from '../postCard/PostCard';
@@ -16,7 +16,7 @@ import ProfileActions from './ProfileActions';
 import ProfileIdentity from './ProfileIdentity';
 import ProfileTabs from './ProfileTabs';
 import ProfileTopBar from './ProfileTopBar';
-import SwipeTabContent from '../ui/profile/SwipeTabContent';
+import RequestsList from './RequestsList';
 import { SwipePager, useSwipeTabs } from '@/hooks/global/UseSwipeTabs';
 import { usePostSheets } from '../postCard/UsePostSheet';
 import { toPostcardProps } from '../postCard/toPostCardProps';
@@ -33,10 +33,14 @@ export default function ProfileScreen({ userId }: Props) {
     const actions = useProfileActions(profile);
     const openProfile = useOpenProfile();
     const currentUser = useCurrentUser();
-    // const { openComments, openShare, commentsCountFor, sheets } = usePostSheets(currentUser);
 
-    const { user, posts, postsLocked, friends, isOwn, loading, refreshing, refresh } = profile;
+    const { user, posts, requests, postsLocked, friends, isOwn, loading, refreshing, refresh } = profile;
     const locked = postsLocked && !isOwn;
+    // Requests tab: your own profile only.
+    const showRequests = isOwn;
+    // The pager sits inside px-5 (20 + 20), so cards must be exactly that much narrower than the screen.
+    const { width: screenWidth } = useWindowDimensions();
+    const cardWidth = screenWidth - 40;
     const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
     const [moreMenuOpen, setMoreMenuOpen] = useState(false);
     const { openComments, openShare, commentsCountFor, sheets } = usePostSheets(currentUser);
@@ -46,7 +50,10 @@ export default function ProfileScreen({ userId }: Props) {
         [user],
     );
 
-    const TAB_KEYS: ProfileTabKey[] = ['posts', 'friends'];
+    const TAB_KEYS = useMemo<ProfileTabKey[]>(
+        () => ['posts', 'friends', ...(showRequests ? (['requests'] as const) : [])],
+        [showRequests],
+    );
 
     const goBack = () => (router.canGoBack() ? router.back() : router.replace('/'));
 
@@ -73,11 +80,11 @@ export default function ProfileScreen({ userId }: Props) {
     const handleShare = (post: ProfilePost) =>
         Share.share({ message: post.content || 'Check out this post on Orb8' }).catch(() => { });
 
-    // TODO: point these at your chat route and in-app calling once they exist.
+    // Message is for profiles only (never for orbitals).
     const handleMessage = () => {
         router.push({ pathname: '/chats/[id]', params: { id: userId } } as any)
     };
-    
+
     const handleCall = () =>
         user?.phone ? Linking.openURL(`tel:${user.phone}`) : Alert.alert('Coming soon', "Calling isn't available yet.");
 
@@ -91,12 +98,9 @@ export default function ProfileScreen({ userId }: Props) {
     const moreActions: SheetAction[] = [
         { label: `Block ${user?.username ?? ''}`.trim(), Icon: Ban, onPress: confirmBlock, destructive: true },
     ];
-    // console.log('user', user)
-    // console.log('friends', friends)
+
     const swipe = useSwipeTabs({ count: TAB_KEYS.length });
-    const tab = TAB_KEYS[swipe.index];
-    console.log('video posts', JSON.stringify(posts.filter((p: any) => p.video || p.videoUrl).map((p: any) => p.id)));
-    console.log('first post keys', posts[0] && Object.keys(posts[0]).join(','));
+    const tab = TAB_KEYS[swipe.index] ?? 'posts';
 
     return (
         <View className="flex-1 bg-black">
@@ -112,7 +116,9 @@ export default function ProfileScreen({ userId }: Props) {
             {user && (
                 <ScrollView
                     showsVerticalScrollIndicator={false}
-                    contentContainerStyle={{ paddingBottom: 48 }}
+                    keyboardShouldPersistTaps="handled"
+                    automaticallyAdjustKeyboardInsets
+                    contentContainerStyle={{ paddingBottom: 120 }}
                     refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor="#ffffff" />}
                 >
                     <Reveal>
@@ -152,10 +158,15 @@ export default function ProfileScreen({ userId }: Props) {
                         ) : (
                             <>
                                 <ProfileTabs
+                                    tabs={TAB_KEYS}
                                     active={tab}
                                     progress={swipe.progress}
                                     onChange={(key) => swipe.goTo(TAB_KEYS.indexOf(key))}
-                                    counts={{ posts: posts.length, friends: friends?.length ?? 0 }}
+                                    counts={{
+                                        posts: posts.length,
+                                        friends: friends?.length ?? 0,
+                                        requests: requests.length,
+                                    }}
                                 />
 
                                 <SwipePager swipe={swipe} autoHeight minPageHeight={320}>
@@ -169,7 +180,10 @@ export default function ProfileScreen({ userId }: Props) {
                                                     {...toPostcardProps(post, author)}
                                                     commentsCount={commentsCountFor(post.id, post.commentsCount)}
                                                     isOwn={isOwn}
-                                                    showDelete={isOwn}
+                                                    cardWidth={cardWidth}
+                                                    manageable={isOwn}
+                                                    onArchive={actions.archivePost}
+                                                    onEditCaption={actions.editCaption}
                                                     disableAuthorPress
                                                     onDelete={actions.deletePost}
                                                     onPressComments={openComments}
@@ -182,18 +196,28 @@ export default function ProfileScreen({ userId }: Props) {
                                     <View key="friends" className="gap-4">
                                         <FriendsList friends={friends} onOpen={openProfile} />
                                     </View>
+
+                                    {showRequests && (
+                                        <View key="requests" className="gap-4">
+                                            <RequestsList
+                                                requests={requests}
+                                                onOpen={openProfile}
+                                                onAccept={actions.acceptRequest}
+                                                onReject={actions.rejectRequest}
+                                            />
+                                        </View>
+                                    )}
                                 </SwipePager>
                             </>
                         )}
                     </Reveal>
                 </ScrollView>
-            )
-            }
+            )}
 
             <ActionSheet visible={avatarMenuOpen && isOwn} onClose={() => setAvatarMenuOpen(false)} actions={avatarActions} />
             <ActionSheet visible={moreMenuOpen && !isOwn} onClose={() => setMoreMenuOpen(false)} actions={moreActions} />
             {sheets}
             <OrbitLoader visible={loading} />
-        </View >
+        </View>
     );
 }

@@ -1,6 +1,7 @@
+import '../global.css';
 import { useEffect } from 'react';
 import { View } from 'react-native';
-import { Stack } from 'expo-router';
+import { Stack, ThemeProvider, DarkTheme } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Provider, useDispatch, useSelector } from 'react-redux';
@@ -10,6 +11,8 @@ import { bootstrapAuth, signOut } from '@/redux/slice/authSlice';
 import { setupAxios, setUnauthorizedHandler } from '@/lib/auth/setupAxios';
 import OrbitLoader from '@/components/ui/OrbitLoader'; // adjust to your loader path
 import { KeyboardProvider } from 'react-native-keyboard-controller';
+import { COLORS } from '@/constants/capsule/constants';
+import * as SystemUI from 'expo-system-ui';
 
 SplashScreen.preventAutoHideAsync();
 setupAxios(); // interceptors installed once, before any screen makes a request
@@ -67,13 +70,23 @@ function AuthGate() {
   );
 }
 
+const BG = COLORS.bg;
+SystemUI.setBackgroundColorAsync(BG);
+
+const OrbitTheme = {
+  ...DarkTheme,
+  colors: { ...DarkTheme.colors, background: BG, card: BG },
+};
+
 export default function RootLayout() {
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
+    <GestureHandlerRootView style={{ flex: 1, backgroundColor: BG }}>
       <Provider store={reduxStore}>
-        <KeyboardProvider statusBarTranslucent navigationBarTranslucent>
-          <AuthGate />
-        </KeyboardProvider>
+        <ThemeProvider value={OrbitTheme}>
+          <KeyboardProvider statusBarTranslucent navigationBarTranslucent>
+            <AuthGate />
+          </KeyboardProvider>
+        </ThemeProvider>
       </Provider>
     </GestureHandlerRootView>
   );
