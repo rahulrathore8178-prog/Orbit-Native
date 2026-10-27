@@ -10,6 +10,7 @@
     "backgroundColor": "#000000",
     "android": {
       "package": "com.orbit.app",
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "backgroundColor": "#000000",
         "foregroundImage": "./assets/images/Orbit-Logo.png",
@@ -54,7 +55,15 @@
           }
         }
       ],
-      ["expo-system-ui"],
+      [
+        "expo-notifications",
+        {
+          "color": "#6D8BFF"
+        }
+      ],
+      [
+        "expo-system-ui"
+      ],
       [
         "expo-location",
         {

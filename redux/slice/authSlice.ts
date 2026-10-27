@@ -41,10 +41,6 @@ export const signIn = createAsyncThunk(
     'auth/signIn',
     async ({ token, user }: { token: string; user: AuthUser }) => {
         await authStorage.setToken(token);
-        console.log(
-            'TOKEN AFTER SAVE:',
-            await authStorage.getToken()
-        );
         await authStorage.setUser(user);
         return user;
     }

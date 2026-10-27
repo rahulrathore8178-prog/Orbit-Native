@@ -4,19 +4,28 @@ import { Platform } from 'react-native';
 
 const TOKEN_KEY = 'token';
 const USER_KEY = 'user';
-
-// SecureStore doesn't exist on web, so web falls back to AsyncStorage (localStorage).
 const useSecureStore = Platform.OS !== 'web';
 
+// In-memory copy so sync callers (getAuthHeaders) never see a Promise.
+let cachedToken: string | null = null;
+
 export const authStorage = {
-    // The token is the secret, so it goes in encrypted storage on native.
-    getToken: (): Promise<string | null> =>
-        useSecureStore ? SecureStore.getItemAsync(TOKEN_KEY) : AsyncStorage.getItem(TOKEN_KEY),
+    getTokenSync: (): string | null => cachedToken,
 
-    setToken: (token: string): Promise<void> =>
-        useSecureStore ? SecureStore.setItemAsync(TOKEN_KEY, token) : AsyncStorage.setItem(TOKEN_KEY, token),
+    async getToken(): Promise<string | null> {
+        const t = useSecureStore
+            ? await SecureStore.getItemAsync(TOKEN_KEY)
+            : await AsyncStorage.getItem(TOKEN_KEY);
+        cachedToken = t;
+        return t;
+    },
 
-    // The user object is not secret (and SecureStore has a ~2KB limit), so AsyncStorage is fine.
+    async setToken(token: string): Promise<void> {
+        cachedToken = token;
+        if (useSecureStore) await SecureStore.setItemAsync(TOKEN_KEY, token);
+        else await AsyncStorage.setItem(TOKEN_KEY, token);
+    },
+
     async getUser<T = any>(): Promise<T | null> {
         const raw = await AsyncStorage.getItem(USER_KEY);
         try {
@@ -29,6 +38,7 @@ export const authStorage = {
     setUser: (user: unknown): Promise<void> => AsyncStorage.setItem(USER_KEY, JSON.stringify(user)),
 
     async clear(): Promise<void> {
+        cachedToken = null;
         await Promise.all([
             useSecureStore ? SecureStore.deleteItemAsync(TOKEN_KEY) : AsyncStorage.removeItem(TOKEN_KEY),
             AsyncStorage.removeItem(USER_KEY),

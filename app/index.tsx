@@ -153,7 +153,7 @@ export default function LoginScreen() {
 
                             <Pressable
                                 onPress={() => {
-                                    // TODO: navigate to your "forgot password" flow
+                                    router.push({ pathname: '/ForgotPassword', params: { email: emailOrUsername.trim() } });
                                 }}
                                 hitSlop={8}
                                 style={{ alignSelf: 'flex-end', marginTop: 12, marginBottom: 18 }}

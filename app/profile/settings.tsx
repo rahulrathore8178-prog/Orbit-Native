@@ -1,5 +1,7 @@
 import { authStorage } from '@/lib/auth/authStorage';
+import { unregisterPushToken } from '@/lib/notifications/push';
 import { API_URL } from '@/lib/utils';
+import { signOut } from '@/redux/slice/authSlice';
 import { setUserId } from '@/redux/slice/profileSlice';
 import { useAppDispatch } from '@/redux/store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -7,12 +9,12 @@ import axios from 'axios';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import { Archive, Bookmark, ChevronLeft, ChevronRight, LogOut } from 'lucide-react-native';
-import React, { useCallback, useState } from 'react';
+import { Archive, Bookmark, ChevronLeft, ChevronRight, LocateIcon, LogOut } from 'lucide-react-native';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     DeviceEventEmitter,
-    Platform,
+    Switch,
     Pressable,
     ScrollView,
     StyleSheet,
@@ -198,6 +200,64 @@ const Settings = () => {
     const dispatch = useAppDispatch();
     const insets = useSafeAreaInsets();
     const [loggingOut, setLoggingOut] = useState(false);
+    const [discoverable, setDiscoverable] =
+        useState(true);
+
+    const [loadingDiscover, setLoadingDiscover] =
+        useState(false);
+
+    useEffect(() => {
+        (async () => {
+            try {
+                const token = await authStorage.getToken();
+
+                const { data } = await axios.get(
+                    `${API_URL}/api/community/discover/preferences`,
+                    {
+                        headers: {
+                            Authorization: `Bearer ${token}`,
+                        },
+                    }
+                );
+
+                setDiscoverable(data.isDiscoverable);
+            } catch (err) {
+                console.log(err);
+            }
+        })();
+    }, []);
+
+    const toggleDiscoverability = async (
+        value: boolean
+    ) => {
+        try {
+            setLoadingDiscover(true);
+
+            const token =
+                await authStorage.getToken();
+
+            await axios.patch(
+                `${API_URL}/api/community/discover/preferences`,
+                {
+                    enabled: value,
+                },
+                {
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                    },
+                }
+            );
+
+            setDiscoverable(value);
+        } catch (error) {
+            console.error(
+                "toggle discoverability failed",
+                error
+            );
+        } finally {
+            setLoadingDiscover(false);
+        }
+    };
 
     const handleLogout = useCallback(async () => {
         if (loggingOut) return;
@@ -208,24 +268,19 @@ const Settings = () => {
                 await axios.get(`${API_URL}/api/auth/user/logout`, {
                     withCredentials: true,
                     headers: { Authorization: `Bearer ${token}` },
+                    timeout: 8000, // don't hang logout if Render is asleep
                 });
-                console.log('[logout] logout request sent successfully');
             } catch (error) {
-                // Continue local cleanup even if API request fails.
-                console.error('logout error', error);
+                // Continue local cleanup even if the API request fails.
+                console.warn('logout request failed', error);
             }
 
-            await authStorage.clear();
-            await AsyncStorage.removeItem('user');
             dispatch(setUserId(null));
+            DeviceEventEmitter.emit('auth:user-updated');
 
-            if (Platform.OS === 'web' && typeof window !== 'undefined') {
-                window.dispatchEvent(new Event('auth:user-updated'));
-            } else {
-                DeviceEventEmitter.emit('auth:user-updated');
-            }
-
-            console.log('[logout] user logged out and redirected to login screen');
+            // Clears storage and flips auth.status to 'signedOut'; the guard redirects to login.
+            await unregisterPushToken();
+            await dispatch(signOut()).unwrap();
         } finally {
             setLoggingOut(false);
         }
@@ -246,6 +301,29 @@ const Settings = () => {
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 24 }}
             >
+                <Group title="Privacy" index={3}>
+                    <View
+                        className="flex-row items-center justify-between rounded-2xl bg-neutral-900 px-4 py-4"
+                    >
+                        <View className="flex-1">
+                            <Text className="text-white font-semibold">
+                                Discover Nearby
+                            </Text>
+
+                            <Text className="text-neutral-400 text-sm mt-1">
+                                Allow other people nearby to find you.
+                            </Text>
+                        </View>
+
+                        <Switch
+                            value={discoverable}
+                            disabled={loadingDiscover}
+                            onValueChange={
+                                toggleDiscoverability
+                            }
+                        />
+                    </View>
+                </Group>
                 <Group title="Library" index={1}>
                     <SettingsRow
                         icon={<Bookmark size={18} color="#e5e5e5" />}

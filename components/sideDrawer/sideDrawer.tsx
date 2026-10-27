@@ -7,6 +7,7 @@ import {
     Orbit,
     Search,
     Settings,
+    Sparkles,
     Sun,
     User as UserIcon,
 } from 'lucide-react-native';
@@ -33,6 +34,7 @@ import Reanimated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, GlassPanel, NeoView } from '../ui/neo';
 import { DRAWER_SPRING, useDrawer } from './DrawerContext'; // adjust path to where you put it
+// import { BetaNote } from './BetaNote';
 
 export type DrawerItemKey =
     | 'profile'
@@ -85,6 +87,27 @@ type Props = {
     onToggleDarkMode: (next: boolean) => void;
     onPressMore?: () => void;
 };
+
+export const BetaNote = memo(function BetaNote() {
+    return (
+        <View className="mt-4 rounded-3xl border border-white/10 bg-white/5 p-4">
+            <View className="flex-row items-center gap-2">
+                <View className="flex-row items-center gap-1 rounded-full border border-[#1D9BF0]/40 bg-[#1D9BF0]/15 px-2.5 py-1">
+                    <Sparkles size={11} color={COLORS.accent} />
+                    <Text className="text-[10px] font-extrabold tracking-widest text-[#1D9BF0]">
+                        BETA
+                    </Text>
+                </View>
+                <Text className="text-[13px] font-bold text-white">You&apos;re early</Text>
+            </View>
+
+            <Text className="mt-2.5 text-[12.5px] leading-[18px] text-white/60">
+                We&apos;re still building, so a few things may not work perfectly yet. Thanks for your
+                patience. Better updates are on the way.
+            </Text>
+        </View>
+    );
+});
 
 function SideDrawer({
     user,
@@ -249,6 +272,7 @@ function SideDrawer({
                                 <MenuRow key={item.key} item={item} onPress={onSelect} />
                             ))}
                         </GlassPanel>
+                        <BetaNote />
                     </ScrollView>
 
                     {/* Pinned footer */}

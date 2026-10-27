@@ -36,7 +36,7 @@ export function SearchBar({ value, onChangeText, onSubmit }: Props) {
                 {IS_IOS && <BlurView intensity={30} tint="dark" style={StyleSheet.absoluteFill} />}
 
                 <View className="flex-row items-center gap-2 rounded-3xl border border-white/[0.04] bg-[#050505] py-1.5 pl-4 pr-1.5">
-                    <SearchIcon size={20} color={colors.n500} />
+                    <SearchIcon size={20} color={colors.n400} />
                     <TextInput
                         value={value}
                         onChangeText={onChangeText}
@@ -69,7 +69,7 @@ export function SearchBar({ value, onChangeText, onSubmit }: Props) {
                         accessibilityLabel="Search"
                         className={`h-11 w-11 items-center justify-center rounded-full active:scale-95 ${RAISED}`}
                     >
-                        <SearchIcon size={20} />
+                        <SearchIcon size={20} color={colors.n400} />
                     </Pressable>
                 </View>
             </View>

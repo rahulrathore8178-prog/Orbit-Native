@@ -41,6 +41,7 @@ import { Archive, Pencil, Trash2 } from 'lucide-react-native';
 import ActionSheet, { SheetAction } from '../ui/ActionSheet';
 import { API_URL, getDisplayImageUrl } from '../../lib/utils';
 import ConfirmSheet from '../profile/ConfirmSheet';
+import { ShareHoldButton } from './ShareQuick';
 
 /* ------------------------------ types --------------------------------- */
 
@@ -225,44 +226,44 @@ const PostHeader = ({
         </TouchableOpacity>
     </View>
 ) : (
-    <View className="flex-row items-center px-3.5 pb-3 pt-4">
-        <TouchableOpacity
-            activeOpacity={0.75}
-            disabled={disableAuthorPress}
-            onPress={onOpenAuthor}
-            accessibilityRole="button"
-            accessibilityLabel={`Open ${author.username}'s profile`}
-            className="flex-1 flex-row items-center"
-        >
-            <View className="mr-3">
-                {author.profilePic ? (
-                    <Image
-                        source={{ uri: author.profilePic }}
-                        className="h-9 w-9 rounded-full border-[1.5px] border-white/50"
-                    />
-                ) : (
-                    <AvatarInitial name={author.username} size={36} />
-                )}
-            </View>
-            <View className="flex-1">
-                <Text numberOfLines={1} className="text-sm font-bold text-white">{author.username}</Text>
-                <Text className="mt-px text-[11px] text-white/65">{formatTimeAgo(createdAt)} ago</Text>
-            </View>
-        </TouchableOpacity>
-
-        {showDelete && (
+        <View className="flex-row items-center px-3.5 pb-3 pt-4">
             <TouchableOpacity
-                onPress={onDelete}
-                hitSlop={10}
+                activeOpacity={0.75}
+                disabled={disableAuthorPress}
+                onPress={onOpenAuthor}
                 accessibilityRole="button"
-                accessibilityLabel={manageable ? 'Post options' : 'Delete post'}
-                className="p-1"
+                accessibilityLabel={`Open ${author.username}'s profile`}
+                className="flex-1 flex-row items-center"
             >
-                <Ionicons name={manageable ? 'ellipsis-horizontal' : 'trash-outline'} size={manageable ? 20 : 17} color="rgba(255,255,255,0.75)" />
+                <View className="mr-3">
+                    {author.profilePic ? (
+                        <Image
+                            source={{ uri: author.profilePic }}
+                            className="h-9 w-9 rounded-full border-[1.5px] border-white/50"
+                        />
+                    ) : (
+                        <AvatarInitial name={author.username} size={36} />
+                    )}
+                </View>
+                <View className="flex-1">
+                    <Text numberOfLines={1} className="text-sm font-bold text-white">{author.username}</Text>
+                    <Text className="mt-px text-[11px] text-white/65">{formatTimeAgo(createdAt)} ago</Text>
+                </View>
             </TouchableOpacity>
-        )}
-    </View>
-);
+
+            {showDelete && (
+                <TouchableOpacity
+                    onPress={onDelete}
+                    hitSlop={10}
+                    accessibilityRole="button"
+                    accessibilityLabel={manageable ? 'Post options' : 'Delete post'}
+                    className="p-1"
+                >
+                    <Ionicons name={manageable ? 'ellipsis-horizontal' : 'trash-outline'} size={manageable ? 20 : 17} color="rgba(255,255,255,0.75)" />
+                </TouchableOpacity>
+            )}
+        </View>
+    );
 
 /* ------------------------------- media -------------------------------- */
 
@@ -528,6 +529,58 @@ const CaptionEditor = ({
 
 /* -------------------------------- card -------------------------------- */
 
+// ---------------------------------------------------------------------------
+// Replace everything from `const Postcard = (` to the end of the file with this.
+// Only import change: make sure `useMemo` is in your react import:
+//   import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+// ---------------------------------------------------------------------------
+
+const DOUBLE_TAP_MS = 280;
+const LONG_CAPTION_CHARS = 110; // media posts: caption collapses to 2 lines past this
+const LONG_BODY_CHARS = 420; // text-only posts: body collapses to 14 lines past this
+const BODY_COLLAPSED_LINES = 14;
+
+const countLines = (s: string) => s.split('\n').length;
+
+/**
+ * Wraps any non-media body (text, voice note) so a double tap likes the post,
+ * with the same heart burst the image/video cards use.
+ */
+const DoubleTapSurface = ({
+    onDoubleTap,
+    onLongPress,
+    heart,
+    className,
+    children,
+}: {
+    onDoubleTap: () => void;
+    onLongPress?: () => void;
+    heart: React.ReactNode;
+    className?: string;
+    children: React.ReactNode;
+}) => {
+    const lastTap = useRef(0);
+
+    const onPress = useCallback(() => {
+        const now = Date.now();
+        if (now - lastTap.current < DOUBLE_TAP_MS) {
+            lastTap.current = 0;
+            onDoubleTap();
+        } else {
+            lastTap.current = now;
+        }
+    }, [onDoubleTap]);
+
+    return (
+        <Pressable onPress={onPress} onLongPress={onLongPress} delayLongPress={350} className={className}>
+            {children}
+            <View pointerEvents="none" className="absolute inset-0 items-center justify-center">
+                {heart}
+            </View>
+        </Pressable>
+    );
+};
+
 const Postcard = ({
     id,
     author,
@@ -558,9 +611,12 @@ const Postcard = ({
 }: SharedPostcardProps) => {
     const { width: screenWidth, height: screenHeight } = useWindowDimensions();
 
-    const imageUri = image?.startsWith('/') ? `${API_URL}${image}` : getDisplayImageUrl(image);
-    const videoUri = withHost(video);
-    const audioUri = withHost(voiceNote);
+    const imageUri = useMemo(
+        () => (image?.startsWith('/') ? `${API_URL}${image}` : getDisplayImageUrl(image)),
+        [image],
+    );
+    const videoUri = useMemo(() => withHost(video), [video]);
+    const audioUri = useMemo(() => withHost(voiceNote), [voiceNote]);
 
     const hasVideo = Boolean(videoUri);
     const hasAudio = Boolean(audioUri) && !hasVideo;
@@ -574,6 +630,10 @@ const Postcard = ({
     const providedRatio = mediaWidth && mediaHeight ? mediaWidth / mediaHeight : null;
     const activeRatio = providedRatio ?? measuredRatio ?? (hasVideo ? 9 / 16 : 4 / 5);
     const box: MediaBox = { width: mediaWidthPx, height: mediaWidthPx / clampAspectRatio(activeRatio) };
+
+    const animateLayout = () => {
+        try { LayoutAnimation.configureNext(LayoutAnimation.create(220, 'easeInEaseOut', 'opacity')); } catch { /* not supported */ }
+    };
 
     /* ---- like ---- */
     const [liked, setLiked] = useState(isLikedByCurrentUser);
@@ -615,7 +675,11 @@ const Postcard = ({
         [liked, id, heartScale],
     );
 
-    const onLikePress = useCallback(() => sendLike(false), [sendLike]);
+    const onLikePress = useCallback(() => {
+        if (!liked && Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        sendLike(false);
+    }, [liked, sendLike]);
+
     const onDoubleTapLike = useCallback(() => {
         playHeart();
         if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -657,9 +721,22 @@ const Postcard = ({
         else openProfile(author.id);
     };
 
-    const openOrbital = () => {
-        if (orbital?.id) router.push({ pathname: '/orbital/[id]', params: { id: orbital.id } });
-    };
+    // Orbital: some payloads give `_id` instead of `id` (populated docs, shared posts).
+    // Normalise once so both the header and the tap handler always have an id.
+    const orbitalId = orbital
+        ? (orbital.id ?? (orbital as unknown as { _id?: string })._id)
+        : undefined;
+    const headerOrbital = useMemo(
+        () => (orbital && orbitalId ? { ...orbital, id: String(orbitalId) } : orbital),
+        [orbital, orbitalId],
+    );
+    const openOrbital = useCallback(() => {
+        if (!orbitalId) {
+            console.warn('Postcard: orbital tapped but it has no id', orbital);
+            return;
+        }
+        router.push({ pathname: '/orbital/[id]', params: { id: String(orbitalId) } });
+    }, [orbitalId, orbital]);
 
     const [confirmOpen, setConfirmOpen] = useState(false);
     const confirmDelete = () => setConfirmOpen(true);
@@ -673,9 +750,15 @@ const Postcard = ({
     const [shownContent, setShownContent] = useState(content ?? '');
     useEffect(() => setShownContent(content ?? ''), [content]);
 
-    const animateLayout = () => {
-        try { LayoutAnimation.configureNext(LayoutAnimation.create(220, 'easeInEaseOut', 'opacity')); } catch { /* not supported */ }
-    };
+    // long text: collapsed by default, tap "more" to expand in place
+    const [expanded, setExpanded] = useState(false);
+    const toggleExpanded = useCallback(() => {
+        animateLayout();
+        setExpanded((v) => !v);
+    }, []);
+    const hasText = shownContent.length > 0;
+    const isLongCaption = hasText && (shownContent.length > LONG_CAPTION_CHARS || countLines(shownContent) > 2);
+    const isLongBody = hasText && (shownContent.length > LONG_BODY_CHARS || countLines(shownContent) > BODY_COLLAPSED_LINES);
 
     const openOptions = useCallback(() => {
         if (!manageable || editing) return;
@@ -720,121 +803,166 @@ const Postcard = ({
         { label: 'Delete', Icon: Trash2, onPress: confirmDelete, destructive: true },
     ];
 
-    const shareBtn = (
-        <TouchableOpacity
-            onPress={() => onClickShare?.(id)}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel="Share post"
-        >
-            <Ionicons name="paper-plane-outline" size={20} color="rgba(255,255,255,0.85)" />
-        </TouchableOpacity>
-    );
+    const longPressHandler = manageable ? openOptions : undefined;
 
     return (
-        <GlassPanel style={{ width: cardWidth, alignSelf: 'center', marginBottom: 14, maxHeight: screenHeight * 0.78 }}>
+        <GlassPanel
+            style={{
+                width: cardWidth,
+                alignSelf: 'center',
+                marginBottom: 14,
+                maxHeight: expanded ? undefined : screenHeight * 0.78,
+            }}
+        >
             <BlurView intensity={75} tint="dark" style={styles.blur}>
-              <Pressable onLongPress={manageable ? openOptions : undefined} delayLongPress={350}>
-                <PostHeader
-                    author={author}
-                    orbital={orbital}
-                    onOpenOrbital={openOrbital}
-                    createdAt={createdAt}
-                    showDelete={showDelete || manageable}
-                    manageable={manageable}
-                    disableAuthorPress={disableAuthorPress}
-                    onOpenAuthor={openAuthor}
-                    onDelete={manageable ? openOptions : confirmDelete}
-                />
-
-                {/* Body */}
-                {hasVideo ? (
-                    <VideoMedia uri={videoUri!} isVisible={isVisible} box={box} onLike={onDoubleTapLike} onLongPress={manageable ? openOptions : undefined} heart={heart} />
-                ) : hasAudio ? (
-                    <AudioMedia
-                        id={id}
-                        uri={audioUri!}
-                        coverUri={imageUri}
-                        duration={voiceNoteDuration}
-                        isVisible={isVisible}
+                <Pressable onLongPress={longPressHandler} delayLongPress={350}>
+                    <PostHeader
+                        author={author}
+                        orbital={headerOrbital}
+                        onOpenOrbital={openOrbital}
+                        createdAt={createdAt}
+                        showDelete={showDelete || manageable}
+                        manageable={manageable}
+                        disableAuthorPress={disableAuthorPress}
+                        onOpenAuthor={openAuthor}
+                        onDelete={manageable ? openOptions : confirmDelete}
                     />
-                ) : hasImage ? (
-                    <ImageMedia
-                        uri={imageUri!}
-                        box={box}
-                        onLike={onDoubleTapLike}
-                        onRatio={providedRatio ? undefined : setMeasuredRatio}
-                        onLongPress={manageable ? openOptions : undefined}
-                        heart={heart}
-                    />
-                ) : editing ? (
-                    <View className="mx-3.5">
-                        <CaptionEditor value={draft} onChange={setDraft} onCancel={cancelEdit} onSave={saveEdit} saving={saving} error={saveError} />
-                    </View>
-                ) : (
-                    <View className="mx-3.5 border-l-2 border-white/15 py-0.5 pl-3.5">
-                        <Text selectable={!manageable} className="text-[17px] font-normal leading-[26px] tracking-[0.15px] text-white/95">
-                            {shownContent}
-                        </Text>
-                    </View>
-                )}
 
-                {/* Footer */}
-                <View className={`px-3.5 pb-4 ${hasMedia ? 'pt-3' : 'pt-4'}`}>
-                    {hasMedia && editing ? (
-                        <View className="mb-3">
+                    {/* Body */}
+                    {hasVideo ? (
+                        <VideoMedia uri={videoUri!} isVisible={isVisible} box={box} onLike={onDoubleTapLike} onLongPress={longPressHandler} heart={heart} />
+                    ) : hasAudio ? (
+                        <DoubleTapSurface onDoubleTap={onDoubleTapLike} onLongPress={longPressHandler} heart={heart}>
+                            <AudioMedia
+                                id={id}
+                                uri={audioUri!}
+                                coverUri={imageUri}
+                                duration={voiceNoteDuration}
+                                isVisible={isVisible}
+                            />
+                        </DoubleTapSurface>
+                    ) : hasImage ? (
+                        <ImageMedia
+                            uri={imageUri!}
+                            box={box}
+                            onLike={onDoubleTapLike}
+                            onRatio={providedRatio ? undefined : setMeasuredRatio}
+                            onLongPress={longPressHandler}
+                            heart={heart}
+                        />
+                    ) : editing ? (
+                        <View className="mx-3.5">
                             <CaptionEditor value={draft} onChange={setDraft} onCancel={cancelEdit} onSave={saveEdit} saving={saving} error={saveError} />
                         </View>
-                    ) : hasMedia && shownContent ? (
-                        <View className="mb-2.5 flex-row items-start">
-                            <Text numberOfLines={2} className="mr-2.5 flex-1 text-[13px] leading-[19px] text-white/95">
+                    ) : (
+                        <DoubleTapSurface
+                            onDoubleTap={onDoubleTapLike}
+                            onLongPress={longPressHandler}
+                            heart={heart}
+                            className="mx-3.5 border-l-2 border-white/15 py-0.5 pl-3.5"
+                        >
+                            <Text
+                                numberOfLines={expanded || !isLongBody ? undefined : BODY_COLLAPSED_LINES}
+                                className="text-[17px] font-normal leading-[26px] tracking-[0.15px] text-white/95"
+                            >
                                 {shownContent}
                             </Text>
-                            {shareBtn}
+                            {isLongBody ? (
+                                <Pressable onPress={toggleExpanded} hitSlop={8} className="mt-1.5 self-start">
+                                    <Text className="text-[13px] font-semibold text-white/55">
+                                        {expanded ? 'Show less' : 'Read more'}
+                                    </Text>
+                                </Pressable>
+                            ) : null}
+                        </DoubleTapSurface>
+                    )}
+
+                    {/* Footer */}
+                    <View className={`px-3.5 pb-4 ${hasMedia ? 'pt-3' : 'pt-4'}`}>
+                        {/* Caption lives in its own full-width block, so long captions never collide with the buttons */}
+                        {hasMedia && editing ? (
+                            <View className="mb-3">
+                                <CaptionEditor value={draft} onChange={setDraft} onCancel={cancelEdit} onSave={saveEdit} saving={saving} error={saveError} />
+                            </View>
+                        ) : hasMedia && hasText ? (
+                            <View className="mb-3 px-0.5">
+                                <Text
+                                    numberOfLines={expanded || !isLongCaption ? undefined : 2}
+                                    className="text-[13.5px] leading-5 text-white/95"
+                                >
+                                    {shownContent}
+                                </Text>
+                                {isLongCaption ? (
+                                    <Pressable onPress={toggleExpanded} hitSlop={8} className="mt-1 self-start">
+                                        <Text className="text-[12.5px] font-semibold text-white/50">
+                                            {expanded ? 'Show less' : 'more'}
+                                        </Text>
+                                    </Pressable>
+                                ) : null}
+                            </View>
+                        ) : null}
+
+                        {/* Action bar: [spacer] [centered pill] [share] — one line, pill stays truly centered */}
+                        <View className="flex-row items-center justify-between">
+                            <View className="h-10 w-10" />
+
+                            <View className="flex-row items-center rounded-full border border-white/10 bg-white/[0.06] px-7 py-2.5">
+                                <TouchableOpacity
+                                    onPress={onLikePress}
+                                    activeOpacity={0.75}
+                                    hitSlop={6}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={liked ? 'Unlike post' : 'Like post'}
+                                    className="mr-7 flex-row items-center"
+                                >
+                                    <Animated.View style={{ transform: [{ scale: heartScale }], marginRight: 6, zIndex: 10 }}>
+                                        <Ionicons
+                                            name={liked ? 'heart' : 'heart-outline'}
+                                            size={20}
+                                            color={liked ? '#fb7185' : ICON_COLOR}
+                                        />
+                                    </Animated.View>
+                                    <Text className="text-[12.5px] text-white/90">{formatCount(likeCount)}</Text>
+                                </TouchableOpacity>
+
+                                <TouchableOpacity
+                                    onPress={() => onPressComments?.(id)}
+                                    activeOpacity={0.75}
+                                    hitSlop={6}
+                                    accessibilityRole="button"
+                                    accessibilityLabel="Open comments"
+                                    className="mr-7 flex-row items-center"
+                                >
+                                    <Ionicons name="chatbubble-outline" size={20} color={ICON_COLOR} style={{ marginRight: 6 }} />
+                                    <Text className="text-[12.5px] text-white/90">{commentsCount}</Text>
+                                </TouchableOpacity>
+
+                                <TouchableOpacity
+                                    onPress={toggleSaved}
+                                    activeOpacity={0.75}
+                                    hitSlop={8}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={saved ? 'Remove from saved posts' : 'Save post'}
+                                >
+                                    <Ionicons
+                                        name={saved ? 'bookmark' : 'bookmark-outline'}
+                                        size={20}
+                                        color={saved ? SAVED_COLOR : ICON_COLOR}
+                                    />
+                                </TouchableOpacity>
+                            </View>
+
+                            <ShareHoldButton
+                                postId={id}
+                                onPress={() => onClickShare?.(id)}
+                                accessibilityLabel="Share post"
+                                className="h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.06]"
+                            >
+                                <Ionicons name="paper-plane-outline" size={18} color="rgba(255,255,255,0.85)" />
+                            </ShareHoldButton>
                         </View>
-                    ) : null}
-
-                    <View className="flex-row items-center">
-                        <TouchableOpacity onPress={onLikePress} activeOpacity={0.75} className="mr-5 flex-row items-center">
-                            <Animated.View style={{ transform: [{ scale: heartScale }], marginRight: 6 }}>
-                                <Ionicons
-                                    name={liked ? 'heart' : 'heart-outline'}
-                                    size={20}
-                                    color={liked ? '#fb7185' : ICON_COLOR}
-                                />
-                            </Animated.View>
-                            <Text className="text-[12.5px] text-white/90">{formatCount(likeCount)}</Text>
-                        </TouchableOpacity>
-
-                        <TouchableOpacity
-                            onPress={() => onPressComments?.(id)}
-                            activeOpacity={0.75}
-                            accessibilityRole="button"
-                            accessibilityLabel="Open comments"
-                            className="mr-5 flex-row items-center"
-                        >
-                            <Ionicons name="chatbubble-outline" size={20} color={ICON_COLOR} style={{ marginRight: 6 }} />
-                            <Text className="text-[12.5px] text-white/90">{commentsCount}</Text>
-                        </TouchableOpacity>
-
-                        <TouchableOpacity
-                            onPress={toggleSaved}
-                            activeOpacity={0.75}
-                            hitSlop={8}
-                            accessibilityRole="button"
-                            accessibilityLabel={saved ? 'Remove from saved posts' : 'Save post'}
-                        >
-                            <Ionicons
-                                name={saved ? 'bookmark' : 'bookmark-outline'}
-                                size={20}
-                                color={saved ? SAVED_COLOR : ICON_COLOR}
-                            />
-                        </TouchableOpacity>
-
-                        {!hasMedia && <View className="ml-auto">{shareBtn}</View>}
                     </View>
-                </View>
-              </Pressable>
+                </Pressable>
             </BlurView>
 
             <ActionSheet visible={optionsOpen} onClose={() => setOptionsOpen(false)} actions={optionActions} />
