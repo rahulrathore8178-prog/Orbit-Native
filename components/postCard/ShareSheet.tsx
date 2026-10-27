@@ -5,7 +5,6 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     ActivityIndicator,
     FlatList,
-    Image,
     KeyboardAvoidingView,
     Modal,
     Platform,
@@ -16,19 +15,10 @@ import {
     View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { API_URL } from '../../lib/utils';
 import { getAuthHeaders } from '../services/feed/postUtils';
 import { COLORS } from '../ui/neo';
-
-/**
- * TODO: point these at your real endpoints.
- *  RECIPIENTS_URL  GET  -> Recipient[]  (or { users: Recipient[] })  people the user can send to
- *  SHARE_URL       POST -> { postId, recipientIds }                   delivers the post (e.g. as a chat message)
- */
-const RECIPIENTS_URL = `${API_URL}/api/chat/recipients`;
-const SHARE_URL = `${API_URL}/api/chat/share-post`;
-
-type Recipient = { _id: string; username: string; profilePic?: string };
+import { Avatar, SHARE_URL, fetchRecipients, showShareToast, type Recipient } from './ShareQuick';
+import { sharePostToContact } from '../services/chat/sharePost';
 
 type Props = {
     visible: boolean;
@@ -50,15 +40,10 @@ export default function ShareSheet({ visible, postId, currentUserId, onClose }: 
         setLoading(true);
         setError(null);
         try {
-            const res = await axios.get(RECIPIENTS_URL, {
-                withCredentials: true,
-                headers: await getAuthHeaders(),
-            });
-            const list: Recipient[] = res.data?.users ?? res.data ?? [];
-            setUsers(list.filter((u) => u._id !== currentUserId));
-        } catch (e) {
+            setUsers(await fetchRecipients(currentUserId));
+        } catch (e: any) {
             console.error('Share recipients error:', e);
-            console.error('Share recipients error data:', e.response?.status, e.response?.data);
+            console.error('Share recipients error data:', e?.response?.status, e?.response?.data);
             setError('Could not load people');
         } finally {
             setLoading(false);
@@ -90,44 +75,46 @@ export default function ShareSheet({ visible, postId, currentUserId, onClose }: 
         if (!postId || selected.size === 0 || sending) return;
         setSending(true);
         setError(null);
-        try {
-            await axios.post(
-                SHARE_URL,
-                { postId, recipientIds: Array.from(selected) },
-                { withCredentials: true, headers: await getAuthHeaders() },
-            );
+
+        const ids = Array.from(selected);
+        const results = await Promise.allSettled(ids.map((id) => sharePostToContact(id, postId)));
+        const failed = ids.filter((_, i) => results[i].status === 'rejected');
+        setSending(false);
+
+        if (failed.length === 0) {
             onClose();
-        } catch (e) {
-            console.error('Share post error:', e);
-            setError('Could not send. Try again.');
-        } finally {
-            setSending(false);
+            // let the sheet start sliding away, then drop the toast from the top
+            setTimeout(() => showShareToast('Shared', ids.length > 1 ? `with ${ids.length} people` : undefined), 250);
+            return;
         }
+        setSelected(new Set(failed)); // keep only the failed ones selected so Retry resends just those
+        setError(
+            failed.length === ids.length
+                ? 'Could not send. Try again.'
+                : `Couldn't send to ${failed.length} of ${ids.length}. Try again.`,
+        );
     }, [postId, selected, sending, onClose]);
 
-    const renderItem = ({ item }: { item: Recipient }) => {
-        const on = selected.has(item._id);
-        return (
-            <Pressable onPress={() => toggle(item._id)} className="flex-row items-center px-4 py-2.5">
-                {item.profilePic ? (
-                    <Image source={{ uri: item.profilePic }} className="h-11 w-11 rounded-full" />
-                ) : (
-                    <View className="h-11 w-11 items-center justify-center rounded-full border border-white/35 bg-white/15">
-                        <Text className="text-base font-bold text-white">{item.username.charAt(0).toUpperCase()}</Text>
+    const renderItem = useCallback(
+        ({ item }: { item: Recipient }) => {
+            const on = selected.has(item._id);
+            return (
+                <Pressable onPress={() => toggle(item._id)} className="flex-row items-center px-4 py-2.5">
+                    <Avatar user={item} size={44} />
+                    <Text numberOfLines={1} className="ml-3 flex-1 text-[15px] font-semibold text-white">
+                        {item.username}
+                    </Text>
+                    <View
+                        className={`h-6 w-6 items-center justify-center rounded-full border ${on ? 'border-white bg-white' : 'border-white/40'
+                            }`}
+                    >
+                        {on && <Ionicons name="checkmark" size={16} color="#0a0c12" />}
                     </View>
-                )}
-                <Text numberOfLines={1} className="ml-3 flex-1 text-[15px] font-semibold text-white">
-                    {item.username}
-                </Text>
-                <View
-                    className={`h-6 w-6 items-center justify-center rounded-full border ${on ? 'border-white bg-white' : 'border-white/40'
-                        }`}
-                >
-                    {on && <Ionicons name="checkmark" size={16} color="#0a0c12" />}
-                </View>
-            </Pressable>
-        );
-    };
+                </Pressable>
+            );
+        },
+        [selected, toggle],
+    );
 
     return (
         <Modal visible={visible} transparent animationType="slide" statusBarTranslucent onRequestClose={onClose}>
@@ -180,10 +167,13 @@ export default function ShareSheet({ visible, postId, currentUserId, onClose }: 
                         ) : (
                             <FlatList
                                 data={filtered}
+                                extraData={selected}
                                 keyExtractor={(u) => u._id}
                                 renderItem={renderItem}
                                 keyboardShouldPersistTaps="handled"
                                 showsVerticalScrollIndicator={false}
+                                initialNumToRender={12}
+                                windowSize={7}
                                 ListEmptyComponent={
                                     <Text className="mt-10 text-center text-sm text-white/60">No people found</Text>
                                 }

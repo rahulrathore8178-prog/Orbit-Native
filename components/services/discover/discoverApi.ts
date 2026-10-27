@@ -28,6 +28,7 @@ export const discoverApi = {
       radius: DISCOVER_RADIUS_M,
       consent: true, // server will convert to lat/lng if not already
     });
+    console.log("DISCOVER RESPONSE:", JSON.stringify(data, null, 2));
     return data;
   } catch (error: any) {
     console.log("[DISCOVER 400] sent:", JSON.stringify(payload));

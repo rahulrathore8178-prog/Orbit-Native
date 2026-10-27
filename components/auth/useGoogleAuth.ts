@@ -96,18 +96,19 @@ export function useGoogleAuth() {
             await dispatch(signIn({ token: data.token, user: data.user })).unwrap();
             DeviceEventEmitter.emit('auth:user-updated');
         } catch (e: any) {
-            // Cancelling is not an error: no alert, no banner.
-            if (e?.code === statusCodes.SIGN_IN_CANCELLED || e?.code === statusCodes.IN_PROGRESS) return;
+            const code = e?.code;
+            // Only treat as "cancelled" when we really have a code to compare.
+            if (code != null && (code === statusCodes.SIGN_IN_CANCELLED || code === statusCodes.IN_PROGRESS)) return;
 
-            console.warn('Google sign-in error', e?.code, e?.message);
+            console.warn('Google sign-in error', code, e?.message);
             let msg: string;
             if (e?.response?.data?.message) msg = e.response.data.message;
             else if (axios.isAxiosError(e) && !e.response) msg = 'Network error. Check your connection and try again.';
-            else if (e?.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) msg = 'Google Play Services is not available on this device.';
-            else if (String(e?.code) === '10' || /DEVELOPER_ERROR/i.test(String(e?.message)))
-                msg = 'Google config error: this build\'s SHA-1 is not registered on your Android OAuth client.';
+            else if (code != null && code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) msg = 'Google Play Services is not available on this device.';
+            else if (String(code) === '10' || /DEVELOPER_ERROR/i.test(String(e?.message)))
+                msg = "Google config error: this build's SHA-1 / package name is not registered on your Android OAuth client.";
             else msg = e?.message || 'Google sign-in failed. Please try again.';
-            setError(msg); // shown by the screen's error banner (single place, no duplicate alert)
+            setError(msg);
         } finally {
             inFlight.current = false;
             setLoading(false);

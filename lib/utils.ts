@@ -1,8 +1,14 @@
 import { authStorage } from "./auth/authStorage";
 
-export const API_URL = process.env.EXPO_PUBLIC_API_URL;
-export const PYTHON_API_URL = process.env.EXPO_PUBLIC_PYTHON_API_URL;
-export const BASE_IMAGE_URL = process.env.EXPO_PUBLIC_BASE_URL;
+const stripSlash = (v?: string) => (v ?? '').trim().replace(/\/+$/, '');
+
+export const API_URL = stripSlash(process.env.EXPO_PUBLIC_API_URL);
+export const PYTHON_API_URL = stripSlash(process.env.EXPO_PUBLIC_PYTHON_API_URL);
+export const BASE_IMAGE_URL = stripSlash(process.env.EXPO_PUBLIC_BASE_URL);
+
+if (!API_URL) {
+    console.error('EXPO_PUBLIC_API_URL is missing in this build. Set it with `eas env:create`.');
+}
 
 // url for getting the display image from google drive
 export function getDisplayImageUrl(
@@ -32,15 +38,14 @@ export function getDisplayImageUrl(
 
 // Authentication headers
 export const getAuthHeaders = () => {
-    const token = authStorage.getToken();
+    const token = authStorage.getTokenSync();
     return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
-export const stripHost = (p?: string) => (p ? p.replace(/^https?:\/\/[^/]+/, '') : p)
+export const stripHost = (p?: string) => (p ? p.replace(/^https?:\/\/[^/]+/, '') : p);
 
-export const API_BASE = (API_URL || 'https://localhost:5000')
-    .replace(/^ws/, 'http')
-    .replace(/\/$/, '')
+// No localhost fallback: a silent fallback hides a misconfigured build.
+export const API_BASE = API_URL.replace(/^ws/, 'http');
 
 export const resolveImg = (p?: string) =>
-    !p ? p : /^https?:\/\//.test(p) ? p : `${API_BASE}${p}`
+    !p ? p : /^https?:\/\//.test(p) ? p : `${API_BASE}${p}`;

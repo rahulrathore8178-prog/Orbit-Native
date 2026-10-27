@@ -109,6 +109,7 @@ const discoverSlice = createSlice({
         s.error = null;
       })
       .addCase(discoverNearby.fulfilled, (s, a) => {
+        console.log("USERS FOUND:", a.payload);
         s.status = "succeeded";
         s.users = [...a.payload].sort((x, y) => x.distance - y.distance);
         s.lastScannedAt = Date.now();

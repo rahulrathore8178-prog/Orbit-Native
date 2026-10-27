@@ -47,7 +47,7 @@ export const enter = (i: number) =>
     FadeInDown.delay(60 + i * 70).duration(460).easing(Easing.out(Easing.cubic));
 
 const tap = () => {
-    try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch { /* noop */ }
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { });
 };
 
 /* ------------------------------ rings --------------------------------- */

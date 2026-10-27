@@ -22,6 +22,7 @@ import { usePostSheets } from '../postCard/UsePostSheet';
 import { toPostcardProps } from '../postCard/toPostCardProps';
 import { useCurrentUser } from '@/hooks/feed/useHomeFeed';
 import PrivateNotice from './PrivateNotice';
+import FriendsView from './FriendsView';
 
 type Props = {
     /** Omit for your own profile (the tab). Pass an id for anyone else (the pushed page). */
@@ -194,7 +195,7 @@ export default function ProfileScreen({ userId }: Props) {
                                     </View>
 
                                     <View key="friends" className="gap-4">
-                                        <FriendsList friends={friends} onOpen={openProfile} />
+                                        <FriendsView friends={friends} onOpen={openProfile} />
                                     </View>
 
                                     {showRequests && (
