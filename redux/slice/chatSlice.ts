@@ -1,4 +1,4 @@
-import { createSlice, PayloadAction } from "@reduxjs/toolkit";  
+import { createSlice, PayloadAction } from "@reduxjs/toolkit";
 
 // 1. Define the shape of a single message
 interface Message {
@@ -12,12 +12,14 @@ interface Message {
 interface ChatState {
   messages: Message[];
   input: string;
+  loading: boolean;
 }
 
 // 3. Initial state with type safety
 const initialState: ChatState = {
   messages: [],
   input: '',
+  loading: true,
 };
 
 // 4. Create slice with typed reducers
@@ -31,6 +33,9 @@ const chatSlice = createSlice({
     clearMessages: (state) => {
       state.messages = [];
     },
+    setChatLoading: (state, action: PayloadAction<boolean>) => {
+      state.loading = action.payload;
+    },
     setInput: (state, action: PayloadAction<string>) => {
       state.input = action.payload;
     }
@@ -38,5 +43,5 @@ const chatSlice = createSlice({
 });
 
 // 5. Export actions and reducer
-export const { addMessage, clearMessages, setInput } = chatSlice.actions;
+export const { addMessage, clearMessages, setInput, setChatLoading } = chatSlice.actions;
 export default chatSlice.reducer;

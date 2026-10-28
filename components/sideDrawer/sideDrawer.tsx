@@ -34,6 +34,8 @@ import Reanimated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, GlassPanel, NeoView } from '../ui/neo';
 import { DRAWER_SPRING, useDrawer } from './DrawerContext'; // adjust path to where you put it
+import { Image } from 'react-native';
+import { getDisplayImageUrl } from '@/lib/utils';
 // import { BetaNote } from './BetaNote';
 
 export type DrawerItemKey =
@@ -220,16 +222,14 @@ function SideDrawer({
                         <GlassPanel radius={26} style={{ padding: 16 }}>
                             <View style={styles.headerTop}>
                                 <NeoView radius={36} style={{ width: 68, height: 68 }}>
-                                    {/* {user?.profilePic ? (
+                                    {user?.profilePic ? (
                                         <Image
-                                            source={{ uri: user?.profilePic }}
+                                            source={{ uri: getDisplayImageUrl(user.profilePic) }}
                                             style={styles.avatar}
                                         />
                                     ) : (
-                                        <View>
-                                        </View>
-                                    )} */}
-                                    <UserIcon color="white" size={32} />
+                                        <UserIcon color="white" size={32} />
+                                    )}
                                 </NeoView>
 
                                 <Pressable
@@ -425,8 +425,8 @@ function NeoSwitch({
 const styles = StyleSheet.create({
     root: {
         ...StyleSheet.absoluteFill,
-        zIndex: 1000,
-        elevation: 1000, // Android z-order
+        zIndex: 99999,
+        elevation: 99999,
     },
     backdrop: { backgroundColor: '#000' },
     drawer: {
@@ -434,6 +434,8 @@ const styles = StyleSheet.create({
         top: 0,
         bottom: 0,
         left: 0,
+        zIndex: 99999,
+        elevation: 99999,
         overflow: 'hidden',
         borderTopRightRadius: 32,
         borderBottomRightRadius: 32,

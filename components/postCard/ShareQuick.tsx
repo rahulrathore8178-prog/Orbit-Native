@@ -1,10 +1,9 @@
-import Ionicons from '@expo/vector-icons/Ionicons';
 import axios from 'axios';
 import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { memo, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { Image, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Image, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
     Easing,
@@ -18,15 +17,14 @@ import Animated, {
     useAnimatedStyle,
     useFrameCallback,
     useSharedValue,
-    withDelay,
-    withSequence,
     withSpring,
     withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { API_URL, getDisplayImageUrl } from '../../lib/utils';
+import { API_URL } from '../../lib/utils';
 import { getAuthHeaders } from '../services/feed/postUtils';
 import { sharePostToContact } from '../services/chat/sharePost';
+import { GlassToastHost, resolveImageUri, showToast } from '../ui/GlassToast';
 
 /* ------------------------------------------------------------------ */
 /* Config                                                              */
@@ -56,7 +54,6 @@ const SIDE_SLACK = 36; // horizontal forgiveness while panning
 const EDGE = 56; // px zone at top/bottom of the list that triggers auto-scroll
 const EDGE_OUT = 70; // how far outside the list the finger can be and still scroll
 const SCROLL_SPEED = 460; // px/s at the very edge
-const HIDDEN_Y = -170;
 
 /* ------------------------------------------------------------------ */
 /* Shared avatar url + component (also used by ShareSheet)             */
@@ -69,17 +66,9 @@ export type Recipient = {
     [k: string]: any;
 };
 
-/** Same resolution Postcard uses for images: server paths get the host, absolute (Drive) links go through getDisplayImageUrl. */
 export function resolveAvatar(u: Recipient): string | undefined {
     const raw: any = u.profilePic ?? u.profilePicture ?? u.avatar ?? u.image ?? u.photo;
-    const val: string | undefined = typeof raw === 'string' ? raw : raw?.url;
-    if (!val) return undefined;
-    if (val.startsWith('/')) return `${API_URL}${val}`;
-    try {
-        return (getDisplayImageUrl(val) as string | undefined) || val;
-    } catch {
-        return val;
-    }
+    return resolveImageUri(typeof raw === 'string' ? raw : raw?.url);
 }
 
 export const Avatar = memo(function Avatar({ user, size }: { user: Recipient; size: number }) {
@@ -116,13 +105,11 @@ export const Avatar = memo(function Avatar({ user, size }: { user: Recipient; si
 });
 
 /* ------------------------------------------------------------------ */
-/* Tiny store (friends, active post, toast text)                       */
+/* Tiny store (friends, active post)                                   */
 /* ------------------------------------------------------------------ */
 
 let friends: Recipient[] = [];
 let activePostId: string | null = null;
-let toastMsg: { text: string; sub?: string; ok: boolean } = { text: 'Shared', ok: true };
-let safeTop = 0;
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
 const subscribe = (l: () => void) => {
@@ -140,7 +127,6 @@ const S = {
     top: makeMutable(0),
     count: makeMutable(0),
     safeTop: makeMutable(0),
-    toastY: makeMutable(HIDDEN_Y),
     open: makeMutable(false),
     fingerX: makeMutable(0),
     fingerY: makeMutable(0),
@@ -200,26 +186,18 @@ export function ensureFriends(currentUserId?: string) {
         });
 }
 
-/** Slides a glass toast down from the top, lets it breathe, then slides it back up. */
+/** Kept for existing callers (ShareSheet). Thin wrapper over the reusable toast. */
 export function showShareToast(text = 'Shared', sub?: string, ok = true) {
-    toastMsg = { text, sub, ok };
-    emit();
-    S.toastY.value = HIDDEN_Y;
-    S.toastY.value = withSequence(
-        withSpring(safeTop + 10, { damping: 13, stiffness: 170, mass: 0.9 }),
-        withDelay(1500, withTiming(HIDDEN_Y, { duration: 340, easing: Easing.in(Easing.cubic) })),
-    );
+    showToast({ title: text, subtitle: sub, variant: ok ? 'success' : 'error' });
 }
 
 async function sendTo(friend: Recipient, postId: string) {
     try {
         await sharePostToContact(friend._id, postId);
-        if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        showShareToast('Shared', `to ${friend.username}`);
+        showToast({ title: 'Shared', subtitle: `to ${friend.username}`, avatar: friend.profilePic, variant: 'success' });
     } catch (e: any) {
         console.error('Quick share error:', e?.response?.status, e?.response?.data ?? e);
-        if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-        showShareToast("Couldn't send", 'Try again', false);
+        showToast({ title: "Couldn't send", subtitle: 'Try again', variant: 'error' });
     }
 }
 
@@ -361,14 +339,11 @@ const Row = memo(function Row({ user, index }: { user: Recipient; index: number 
 
 export function ShareQuickHost({ currentUserId }: { currentUserId?: string }) {
     const insets = useSafeAreaInsets();
-    const { width } = useWindowDimensions();
     const list = useSyncExternalStore(subscribe, () => friends);
-    const msg = useSyncExternalStore(subscribe, () => toastMsg);
     const shown = list.slice(0, MAX_FRIENDS);
     const vp = vpHeight(shown.length);
 
     useEffect(() => {
-        safeTop = insets.top;
         S.safeTop.value = insets.top;
     }, [insets.top]);
 
@@ -428,85 +403,54 @@ export function ShareQuickHost({ currentUserId }: { currentUserId?: string }) {
         const maxScroll = Math.max(0, n * ITEM_H - vpHeight(n));
         return { opacity: interpolate(maxScroll - S.scrollY.value, [0, 24], [0, 1], Extrapolation.CLAMP) };
     });
-    const toast = useAnimatedStyle(() => ({ transform: [{ translateY: S.toastY.value }] }));
 
     return (
-        <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-            <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: '#000' }, backdrop]} />
+        <>
+            <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: '#000' }, backdrop]} />
 
-            <Animated.View
-                style={[
-                    {
-                        position: 'absolute',
-                        width: LIST_W,
-                        height: vp + PAD * 2,
-                        borderRadius: 28,
-                        overflow: 'hidden',
-                        borderWidth: 1,
-                        borderColor: 'rgba(255,255,255,0.16)',
-                    },
-                    panel,
-                ]}
-            >
-                <BlurView intensity={60} tint="dark" style={StyleSheet.absoluteFill} />
-                <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(10,12,18,0.82)' }]} />
-
-                <View style={{ margin: PAD, height: vp, overflow: 'hidden' }}>
-                    {shown.length === 0 ? (
-                        <View style={{ height: ITEM_H, alignItems: 'center', justifyContent: 'center' }}>
-                            <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 14 }}>No friends to show</Text>
-                        </View>
-                    ) : (
-                        <Animated.View style={content}>
-                            {shown.map((u, i) => (
-                                <Row key={u._id} user={u} index={i} />
-                            ))}
-                        </Animated.View>
-                    )}
-
-                    <Animated.View pointerEvents="none" style={[{ position: 'absolute', left: 0, right: 0, top: 0, height: 28 }, topFade]}>
-                        <LinearGradient colors={['rgba(10,12,18,0.95)', 'rgba(10,12,18,0)']} style={{ flex: 1 }} />
-                    </Animated.View>
-                    <Animated.View pointerEvents="none" style={[{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 28 }, bottomFade]}>
-                        <LinearGradient colors={['rgba(10,12,18,0)', 'rgba(10,12,18,0.95)']} style={{ flex: 1 }} />
-                    </Animated.View>
-                </View>
-            </Animated.View>
-
-            <Animated.View style={[{ position: 'absolute', top: 0, left: 0, right: 0, alignItems: 'center' }, toast]}>
-                <View
-                    style={{
-                        maxWidth: width - 48,
-                        borderRadius: 999,
-                        overflow: 'hidden',
-                        borderWidth: 1,
-                        borderColor: 'rgba(255,255,255,0.18)',
-                    }}
+                <Animated.View
+                    style={[
+                        {
+                            position: 'absolute',
+                            width: LIST_W,
+                            height: vp + PAD * 2,
+                            borderRadius: 28,
+                            overflow: 'hidden',
+                            borderWidth: 1,
+                            borderColor: 'rgba(255,255,255,0.16)',
+                        },
+                        panel,
+                    ]}
                 >
-                    <BlurView intensity={70} tint="dark" style={StyleSheet.absoluteFill} />
-                    <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(10,12,18,0.6)' }]} />
-                    <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingLeft: 12, paddingRight: 18 }}>
-                        <View
-                            style={{
-                                width: 24,
-                                height: 24,
-                                borderRadius: 12,
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                backgroundColor: msg.ok ? 'rgba(255,255,255,0.95)' : 'rgba(251,113,133,0.95)',
-                            }}
-                        >
-                            <Ionicons name={msg.ok ? 'checkmark' : 'close'} size={15} color="#0a0c12" />
-                        </View>
-                        <Text style={{ marginLeft: 10, color: '#fff', fontSize: 14, fontWeight: '700' }}>{msg.text}</Text>
-                        {msg.sub ? (
-                            <Text numberOfLines={1} style={{ marginLeft: 6, color: 'rgba(255,255,255,0.6)', fontSize: 13, flexShrink: 1 }}>
-                                {msg.sub}
-                            </Text>
-                        ) : null}
+                    <BlurView intensity={60} tint="dark" style={StyleSheet.absoluteFill} />
+                    <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(10,12,18,0.82)' }]} />
+
+                    <View style={{ margin: PAD, height: vp, overflow: 'hidden' }}>
+                        {shown.length === 0 ? (
+                            <View style={{ height: ITEM_H, alignItems: 'center', justifyContent: 'center' }}>
+                                <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 14 }}>No friends to show</Text>
+                            </View>
+                        ) : (
+                            <Animated.View style={content}>
+                                {shown.map((u, i) => (
+                                    <Row key={u._id} user={u} index={i} />
+                                ))}
+                            </Animated.View>
+                        )}
+
+                        <Animated.View pointerEvents="none" style={[{ position: 'absolute', left: 0, right: 0, top: 0, height: 28 }, topFade]}>
+                            <LinearGradient colors={['rgba(10,12,18,0.95)', 'rgba(10,12,18,0)']} style={{ flex: 1 }} />
+                        </Animated.View>
+                        <Animated.View pointerEvents="none" style={[{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 28 }, bottomFade]}>
+                            <LinearGradient colors={['rgba(10,12,18,0)', 'rgba(10,12,18,0.95)']} style={{ flex: 1 }} />
+                        </Animated.View>
                     </View>
-                </View>
-            </Animated.View>
-        </View>
+                </Animated.View>
+            </View>
+
+            {/* The reusable toast. Lives in its own touchable layer so it can be tapped / swiped. */}
+            <GlassToastHost />
+        </>
     );
 }

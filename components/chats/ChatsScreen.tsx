@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/chats/ui'
 import { OrbitBackdrop } from '@/components/search/OrbitbackDrop'
 import { Message } from '@/hooks/chats/useChat'
+import { useCall } from '@/lib/calls/callProvider'
 import { Friend } from '@/redux/slice/friends'
 import { Ionicons } from '@expo/vector-icons'
 import * as Clipboard from 'expo-clipboard'
@@ -22,6 +23,11 @@ import { KeyboardAvoidingView, useReanimatedKeyboardAnimation } from 'react-nati
 import Animated, { FadeIn, FadeInDown, FadeInUp, ZoomIn, ZoomOut, interpolate, useAnimatedStyle } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { SharedPostBubble } from './SharedPostBubble'
+import { useFocusEffect } from 'expo-router'
+import { setActiveChat } from '@/hooks/chats/activeChat'
+import { useSelector } from 'react-redux'
+import { RootState } from '@/redux/store'
+import { ChatOrbitLoader } from './ChatOrbitLoader'
 
 type Props = {
   contact: Friend
@@ -210,6 +216,14 @@ export function ChatScreen({
   const [sheet, setSheet] = useState<Sheet | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [showJump, setShowJump] = useState(false)
+  const loading = useSelector((s: RootState) => s.chat.loading)
+
+    useFocusEffect(
+    useCallback(() => {
+      setActiveChat(contact._id)
+      return () => setActiveChat(null)
+    }, [contact._id])
+  )
 
   // Inverted list wants newest first. Offset 0 is the bottom, so the chat opens
   // at the latest message with no scrolling, and the latest message stays
@@ -254,6 +268,17 @@ export function ChatScreen({
   const soon = useCallback((what: string) => onNotify(`${what} coming soon`), [onNotify])
   const handleProfile = useCallback(() => onOpenProfile(contact), [onOpenProfile, contact])
   const handleVoiceNote = useCallback(() => soon('Voice notes'), [soon])
+
+  // ----- Calls (state + WebRTC live in <CallProvider>, mounted in app/_layout.tsx) -----
+  const { startCall, state: callState, isReady: callsReady } = useCall()
+  const placeCall = useCallback(
+    (type: 'audio' | 'video') => {
+      if (callState.phase !== 'idle' && callState.phase !== 'ended') return
+      if (!callsReady) return onNotify('Connecting… try again in a moment', 'info')
+      startCall({ id: contact._id, username: contact.username, profilePic: contact.profilePic }, type)
+    },
+    [callState.phase, callsReady, contact, onNotify, startCall]
+  )
 
   // Sending always brings you back to the newest message, even if you had scrolled up.
   const handleSend = useCallback(
@@ -338,6 +363,7 @@ export function ChatScreen({
   return (
     <View className="flex-1 overflow-hidden bg-black">
       <OrbitBackdrop />
+      {loading && messages.length === 0 && <ChatOrbitLoader /> }
       <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
         {/* Header */}
         <Animated.View entering={FadeInDown.duration(320)}>
@@ -359,8 +385,8 @@ export function ChatScreen({
             </View>
           </Pressable>
 
-          <IconButton name="call-outline" onPress={() => soon('Voice calls')} compact size={18} />
-          <IconButton name="videocam-outline" onPress={() => soon('Video calls')} compact size={19} />
+          <IconButton name="call-outline" onPress={() => placeCall('audio')} compact size={18} />
+          <IconButton name="videocam-outline" onPress={() => placeCall('video')} compact size={19} />
           <IconButton name="ellipsis-vertical" onPress={openMenu} compact size={18} />
         </Glass>
         </Animated.View>

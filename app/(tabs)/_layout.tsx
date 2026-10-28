@@ -1,3 +1,4 @@
+import '@/global.css';
 import { DrawerProvider } from '@/components/sideDrawer/DrawerContext';
 import { FloatingTabBar } from '@/components/ui/FloatingTabBar';
 import { useTabBarLayout } from '@/hooks/useTabBarLayout';
