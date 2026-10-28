@@ -1,7 +1,7 @@
 import { OrbitBackdrop } from '@/components/search/OrbitbackDrop'
 import { KEYBOARD_GAP, TAB_BAR_GAP, TAB_BAR_HEIGHT } from '@/components/search/constants'
 import { ActionSheet, Avatar, SheetOption } from '@/components/ui/chats/ui'
-import type { Conversation } from '@/hooks/chats/useConversations'
+import type { Conversation } from '@/hooks/chats/useConversation'
 import { Friend } from '@/redux/slice/friends'
 import { Ionicons } from '@expo/vector-icons'
 import * as Haptics from 'expo-haptics'

@@ -15,6 +15,7 @@ import { useGoogleAuth } from '@/components/auth/useGoogleAuth';
 import { signIn } from '@/redux/slice/authSlice';
 import { useAppDispatch } from '@/redux/store';
 import axios from 'axios';
+import '@/global.css';
 import { router } from 'expo-router';
 import React, { useCallback, useRef, useState } from 'react';
 import {

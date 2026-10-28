@@ -79,6 +79,7 @@ function toMedia(raw: any): CommentMedia | null {
     const t: string | undefined = raw.mediaType ?? raw.media?.type;
 
     if (t?.startsWith('audio') || raw.voiceNoteDuration || AUDIO_URL_RE.test(url)) {
+        console.log('raw.voiceNoteDuration', raw.voiceNoteDuration, 'raw.media?.duration', raw.media?.duration);
         return { type: 'audio', url, duration: Number(raw.voiceNoteDuration ?? raw.media?.duration ?? 0) };
     }
     if (t?.startsWith('video') || VIDEO_URL_RE.test(url)) return { type: 'video', url };
@@ -89,6 +90,18 @@ export function normalizeComment(raw: any, myId?: string, fallback?: CommentAuth
     const a = raw.author ?? raw.user ?? fallback ?? {};
     const likes: any[] | null = Array.isArray(raw.likes) ? raw.likes : null;
     const parent = raw.parentId ?? raw.parent;
+    const media = toMedia(raw);
+
+    console.log(
+        'COMMENT',
+        raw._id,
+        'CONTENT:',
+        raw.content,
+        'MEDIA:',
+        media,
+        'RAW:',
+        raw
+    );
     return {
         _id: String(raw._id ?? raw.id),
         content: raw.content ?? raw.text ?? '',
@@ -113,7 +126,9 @@ const authConfig = async () => ({ withCredentials: true, headers: { ...(await ge
 
 export async function fetchComments(postId: string, myId?: string) {
     const { data } = await axios.get(COMMENT_ROUTES.list(postId), await authConfig());
+    console.log('fetchComments', data);
     const list: any[] = Array.isArray(data) ? data : data?.post?.comments ?? [];
+    console.log('fetchComments', list.length, 'comments for post', postId);
 
     const out: Comment[] = [];
     const walk = (raw: any, rootId: string | null) => {

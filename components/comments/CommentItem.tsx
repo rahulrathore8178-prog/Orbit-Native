@@ -1,131 +1,150 @@
 import { resolveImg } from '@/lib/utils';
+import * as Haptics from 'expo-haptics';
 import { Heart, Trash2 } from 'lucide-react-native';
-import React, { useRef, useState } from 'react';
-import { Animated, Image, Pressable, Text, View } from 'react-native';
-import { COLORS, GlassPanel } from '../ui/neo';
-import { Comment, timeAgo } from './commentsApi';
-import { Avatar, FadeIn, ImageViewer, VideoTap, VoicePlayer } from './CommentUI';
+import React, { memo, useRef } from 'react';
+import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Comment, timeAgo } from '../services/comments/commentsApi';
+import { COLORS } from '../ui/neo';
+import { CommentMediaView } from './CommentMedia';
+import { Avatar, FadeIn } from './CommentUI';
 
-function LikeButton({ liked, count, onPress }: { liked: boolean; count: number; onPress: () => void }) {
+const RED = '#f87171';
+
+function LikeButton({ liked, count, onPress, onAccent }: { liked: boolean; count: number; onPress: () => void; onAccent?: boolean }) {
     const scale = useRef(new Animated.Value(1)).current;
-
     const press = () => {
+        Haptics.selectionAsync().catch(() => { });
         Animated.sequence([
-            Animated.timing(scale, { toValue: 1.4, duration: 110, useNativeDriver: true }),
-            Animated.spring(scale, { toValue: 1, bounciness: 10, useNativeDriver: true }),
+            Animated.timing(scale, { toValue: 1.45, duration: 110, useNativeDriver: true }),
+            Animated.spring(scale, { toValue: 1, bounciness: 12, useNativeDriver: true }),
         ]).start();
         onPress();
     };
-
     return (
-        <Pressable
-            onPress={press}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel={liked ? 'Unlike' : 'Like'}
-            style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
-        >
+        <Pressable onPress={press} hitSlop={10} accessibilityRole="button" accessibilityLabel={liked ? 'Unlike' : 'Like'} style={styles.act}>
             <Animated.View style={{ transform: [{ scale }] }}>
-                <Heart size={16} color={liked ? '#f87171' : COLORS.muted} fill={liked ? '#f87171' : 'none'} />
+                <Heart size={16} color={liked ? RED : COLORS.muted} fill={liked ? RED : 'none'} />
             </Animated.View>
-            {count > 0 && (
-                <Text style={{ color: liked ? '#f87171' : COLORS.muted, fontSize: 12, fontWeight: '700' }}>{count}</Text>
-            )}
+            {count > 0 ? <Text style={[styles.actText, liked && { color: RED }]}>{count}</Text> : null}
         </Pressable>
     );
 }
 
 type Props = {
     comment: Comment;
+    /** true = written by the signed-in user: shown on the right, like a sent message */
     isOwn: boolean;
     isReply?: boolean;
     index?: number;
-    replyCount?: number;
-    repliesOpen?: boolean;
-    onToggleReplies?: () => void;
     onLike: (c: Comment) => void;
     onReply: (c: Comment) => void;
     onDelete: (c: Comment) => void;
+    onRetry: (c: Comment) => void;
+    onDiscard: (c: Comment) => void;
+    onOpenImage: (url: string) => void;
 };
 
-export default function CommentItem({
-    comment,
-    isOwn,
-    isReply = false,
-    index = 0,
-    replyCount = 0,
-    repliesOpen = false,
-    onToggleReplies,
-    onLike,
-    onReply,
-    onDelete,
-}: Props) {
-    const [viewing, setViewing] = useState<string | null>(null);
+function CommentItemBase({ comment, isOwn, isReply = false, index = 0, onLike, onReply, onDelete, onRetry, onDiscard, onOpenImage }: Props) {
+    const mine = isOwn;
+    const sending = comment.status === 'sending';
+    const failed = comment.status === 'failed';
     const media = comment.media;
-    const actionText = { color: COLORS.muted, fontSize: 12, fontWeight: '700' as const };
-    console.log('comment', comment)
+    const hasText = !!comment.content || !!comment.replyTo;
+    const align = mine ? 'flex-end' : 'flex-start';
+
     return (
-        <FadeIn delay={Math.min(index, 6) * 40}>
-            <View style={{ flexDirection: 'row', gap: 10 }}>
-                <Avatar uri={resolveImg(comment?.author?.profilePic)} name={comment.author.username} size={isReply ? 34 : 42} />
+        <FadeIn delay={Math.min(index, 6) * 35}>
+            <View style={[styles.row, { justifyContent: align, opacity: sending ? 0.72 : 1 }]}>
+                {!mine ? (
+                    <Avatar uri={resolveImg(comment.author.profilePic)} name={comment.author.username} size={isReply ? 30 : 38} />
+                ) : null}
 
-                <View style={{ flex: 1 }}>
-                    <GlassPanel radius={18} style={{ paddingHorizontal: 14, paddingVertical: 10 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                            <Text numberOfLines={1} style={{ flexShrink: 1, color: COLORS.text, fontSize: 13, fontWeight: '800' }}>
-                                {comment.author.username}
-                            </Text>
-                            <Text style={{ color: COLORS.muted, fontSize: 11 }}>{timeAgo(comment.createdAt)}</Text>
+                <View style={[styles.col, mine ? styles.colMine : styles.colTheirs, { alignItems: align }]}>
+                    {!mine ? (
+                        <View style={styles.meta}>
+                            <Text numberOfLines={1} style={styles.name}>{comment.author.username}</Text>
+                            <Text style={styles.time}>{timeAgo(comment.createdAt)}</Text>
                         </View>
+                    ) : null}
 
-                        {!!comment.content && (
-                            <Text selectable style={{ color: COLORS.text, fontSize: 14, lineHeight: 20, marginTop: 4 }}>
+                    {hasText ? (
+                        <View style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleTheirs]}>
+                            <Text selectable style={[styles.text, mine && styles.textMine]}>
+                                {comment.replyTo ? (
+                                    <Text style={mine ? styles.mentionMine : styles.mention}>@{comment.replyTo.username} </Text>
+                                ) : null}
                                 {comment.content}
                             </Text>
-                        )}
+                        </View>
+                    ) : null}
 
-                        {media?.type === 'image' && (
-                            <Pressable onPress={() => setViewing(media.url)} style={{ marginTop: 8 }}>
-                                <Image
-                                    source={{ uri: media.url }}
-                                    style={{ width: '100%', height: 200, borderRadius: 14 }}
-                                    resizeMode="cover"
-                                />
-                            </Pressable>
-                        )}
-                        {media?.type === 'gif' && (
-                            <Image
-                                source={{ uri: media.url }}
-                                style={{ width: '100%', height: 170, borderRadius: 14, marginTop: 8 }}
-                                resizeMode="cover"
+                    {media ? (
+                        <View style={{ marginTop: hasText ? 6 : 0 }}>
+                            <CommentMediaView
+                                media={media}
+                                seed={comment.key ?? comment._id}
+                                uploading={sending && media.type === 'image'}
+                                progress={comment.progress}
+                                onOpenImage={onOpenImage}
                             />
-                        )}
-                        {media?.type === 'video' && <VideoTap uri={media.url} />}
-                        {media?.type === 'audio' && <VoicePlayer uri={media.url} duration={media.duration} />}
-                    </GlassPanel>
+                        </View>
+                    ) : null}
 
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 18, paddingHorizontal: 8, paddingTop: 8 }}>
-                        <LikeButton liked={comment.liked} count={comment.likeCount} onPress={() => onLike(comment)} />
-                        <Pressable onPress={() => onReply(comment)} hitSlop={8}>
-                            <Text style={actionText}>Reply</Text>
-                        </Pressable>
-                        {isOwn && (
-                            <Pressable onPress={() => onDelete(comment)} hitSlop={8} accessibilityLabel="Delete comment">
-                                <Trash2 size={14} color={COLORS.muted} />
-                            </Pressable>
-                        )}
-                        {replyCount > 0 && onToggleReplies && (
-                            <Pressable onPress={onToggleReplies} hitSlop={8}>
-                                <Text style={actionText}>
-                                    {repliesOpen ? 'Hide replies' : `View ${replyCount} ${replyCount === 1 ? 'reply' : 'replies'}`}
-                                </Text>
-                            </Pressable>
-                        )}
-                    </View>
+                    {failed ? (
+                        <View style={[styles.actions, { justifyContent: align }]}>
+                            <Text style={{ color: RED, fontSize: 12, fontWeight: '700' }}>Couldn't send</Text>
+                            <Pressable onPress={() => onRetry(comment)} hitSlop={8}><Text style={styles.retry}>Retry</Text></Pressable>
+                            <Pressable onPress={() => onDiscard(comment)} hitSlop={8}><Text style={styles.actText}>Discard</Text></Pressable>
+                        </View>
+                    ) : (
+                        <View style={[styles.actions, { justifyContent: align }]}>
+                            {mine ? <Text style={styles.time}>{sending ? 'sending…' : timeAgo(comment.createdAt)}</Text> : null}
+                            {!sending ? (
+                                <>
+                                    <LikeButton liked={comment.liked} count={comment.likeCount} onPress={() => onLike(comment)} />
+                                    <Pressable onPress={() => onReply(comment)} hitSlop={10}>
+                                        <Text style={styles.actText}>Reply</Text>
+                                    </Pressable>
+                                    {mine ? (
+                                        <Pressable onPress={() => onDelete(comment)} hitSlop={10} accessibilityLabel="Delete comment">
+                                            <Trash2 size={14} color={COLORS.muted} />
+                                        </Pressable>
+                                    ) : null}
+                                </>
+                            ) : null}
+                        </View>
+                    )}
                 </View>
             </View>
-
-            <ImageViewer uri={viewing} onClose={() => setViewing(null)} />
         </FadeIn>
     );
 }
+
+export default memo(CommentItemBase);
+
+const styles = StyleSheet.create({
+    row: { flexDirection: 'row', gap: 10, width: '100%' },
+    // Chat feel: a gutter on the opposite side so bubbles never span the full width.
+    col: { flexShrink: 1 },
+    colMine: { maxWidth: '82%' },
+    colTheirs: { marginRight: 28 },
+    meta: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4, paddingLeft: 4 },
+    name: { flexShrink: 1, color: COLORS.text, fontSize: 13, fontWeight: '800' },
+    time: { color: COLORS.muted, fontSize: 11.5 },
+    bubble: { maxWidth: '100%', paddingHorizontal: 13, paddingVertical: 9, borderRadius: 18 },
+    bubbleTheirs: {
+        borderTopLeftRadius: 6,
+        backgroundColor: 'rgba(255,255,255,0.07)',
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: 'rgba(255,255,255,0.11)',
+    },
+    bubbleMine: { borderTopRightRadius: 6, backgroundColor: COLORS.accent },
+    text: { color: COLORS.text, fontSize: 14.5, lineHeight: 20 },
+    textMine: { color: '#ffffff' },
+    mention: { color: COLORS.accent, fontWeight: '700' },
+    mentionMine: { color: '#ffffff', fontWeight: '800', textDecorationLine: 'underline' },
+    actions: { flexDirection: 'row', alignItems: 'center', gap: 16, paddingTop: 6, paddingHorizontal: 4 },
+    act: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    actText: { color: COLORS.muted, fontSize: 12, fontWeight: '700' },
+    retry: { color: COLORS.accent, fontSize: 12, fontWeight: '800' },
+});

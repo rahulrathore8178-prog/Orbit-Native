@@ -1,66 +1,82 @@
 import {
-    AudioModule,
-    RecordingPresets,
-    setAudioModeAsync,
-    useAudioRecorder,
-    useAudioRecorderState,
+    AudioModule, RecordingPresets, setAudioModeAsync, useAudioRecorder, useAudioRecorderState,
 } from 'expo-audio';
+import * as Haptics from 'expo-haptics';
+import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
-import { Image as ImageIcon, Mic, Send, Smile, Square, Trash2, Video as VideoIcon, X } from 'lucide-react-native';
+import { ArrowUp, Image as ImageIcon, Mic, Smile, Sticker, X } from 'lucide-react-native';
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Image, Keyboard, Platform, Pressable, Text, TextInput, View, Animated, Easing } from 'react-native';
-import { IconButton, RecordingBar, VideoPreview, VoiceNotePreview } from '../posts/PostMedia';
 import {
-    ALLOWED_IMAGE_TYPES,
-    ALLOWED_VIDEO_TYPES,
-    MAX_IMAGE_SIZE,
-    MAX_VIDEO_SIZE,
-    resolveMime,
-} from '../posts/postConstant';
-import { COLORS, GlassPanel, NeoView } from '../ui/neo';
+    ActivityIndicator, Animated, Easing, Keyboard, Platform, Pressable, Text, TextInput, View,
+} from 'react-native';
+import { RecordingBar, VoiceNotePreview } from '../posts/PostMedia';
+import { COLORS } from '../ui/neo';
 import { FadeIn } from './CommentUI';
-import { Attachment, Comment, Draft } from './commentsApi';
-import { EmojiPanel, GifPanel, removeLastChar } from './panels';
+import { Attachment, Comment, Draft, MAX_COMMENT, MAX_VOICE_SECONDS } from '../services/comments/commentsApi';
+import GiphyPanel from './GiphyPanel';
+import { EmojiPanel, removeLastChar } from './panels';
+import { prepareImage } from '@/lib/comments/prepareMedia';
 
-const PANEL_H = 270;
-const MAX_COMMENT = 1000;
-const MAX_VOICE_SECONDS = 60;
+const PANEL_H = 300;
+const ICON = '#d4d8e1';
+// Speech-quality voice notes: mono, ~32kbps AAC (about 240KB per minute).
+const VOICE_PRESET = { ...RecordingPresets.HIGH_QUALITY, sampleRate: 22050, numberOfChannels: 1, bitRate: 32000 };
 
-type PanelKind = 'none' | 'emoji' | 'gif';
+type PanelKind = 'none' | 'emoji' | 'giphy';
 
 type Props = {
     replyingTo: Comment | null;
     onCancelReply: () => void;
-    /** resolve with an error message, or null on success */
-    onSubmit: (draft: Draft) => Promise<string | null>;
-    /** resolve with an error message, or null on success */
-    onReply: (c: Comment, draft: Draft) => Promise<string | null>;
+    /** Fire and forget: the sheet shows the comment instantly and uploads in the background. */
+    onSend: (draft: Draft) => void;
     keyboardVisible: boolean;
     bottomInset: number;
 };
 
-export default function CommentComposer({ replyingTo, onCancelReply, onSubmit, onReply, keyboardVisible, bottomInset }: Props) {
+const ToolButton = ({ Icon, label, onPress, active, disabled }: {
+    Icon: any; label: string; onPress: () => void; active?: boolean; disabled?: boolean;
+}) => (
+    <Pressable
+        onPress={onPress}
+        disabled={disabled}
+        hitSlop={4}
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        className={`h-9 w-9 items-center justify-center rounded-full active:opacity-60 ${active ? 'bg-white/10' : ''} ${disabled ? 'opacity-40' : ''}`}
+    >
+        <Icon size={20} strokeWidth={2.2} color={active ? COLORS.accent : ICON} />
+    </Pressable>
+);
+
+export default function CommentComposer({ replyingTo, onCancelReply, onSend, keyboardVisible, bottomInset }: Props) {
     const inputRef = useRef<TextInput>(null);
     const [text, setText] = useState('');
     const [attachment, setAttachment] = useState<Attachment | null>(null);
     const [panel, setPanel] = useState<PanelKind>('none');
     const [panelMounted, setPanelMounted] = useState(false);
-    const [sending, setSending] = useState(false);
+    const [preparing, setPreparing] = useState(false);
+    const [focused, setFocused] = useState(false);
     const [error, setError] = useState('');
 
     const panelAnim = useRef(new Animated.Value(0)).current;
-    const lastPanel = useRef<'emoji' | 'gif'>('emoji');
+    const lastPanel = useRef<'emoji' | 'giphy'>('emoji');
     if (panel !== 'none') lastPanel.current = panel;
 
-    // voice recording
-    const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+    const recorder = useAudioRecorder(VOICE_PRESET);
     const recState = useAudioRecorderState(recorder, 250);
     const isRecording = recState.isRecording;
     const stoppingRef = useRef(false);
 
-    const canSend = !sending && !isRecording && (text.trim().length > 0 || !!attachment);
+    const canSend = (text.trim().length > 0 || !!attachment) && !isRecording && !preparing;
 
-    /* ----- emoji / gif panel: height animates, content stays mounted until it has closed ----- */
+    /* send button springs when it switches between mic and send */
+    const pop = useRef(new Animated.Value(1)).current;
+    useEffect(() => {
+        pop.setValue(0.82);
+        Animated.spring(pop, { toValue: 1, useNativeDriver: true, bounciness: 14, speed: 18 }).start();
+    }, [canSend, pop]);
+
+    /* panel height animation; content stays mounted until it has closed */
     useEffect(() => {
         if (panel !== 'none') setPanelMounted(true);
         Animated.timing(panelAnim, {
@@ -72,10 +88,9 @@ export default function CommentComposer({ replyingTo, onCancelReply, onSubmit, o
             if (finished && panel === 'none') setPanelMounted(false);
         });
     }, [panel, panelAnim]);
-
     const panelHeight = panelAnim.interpolate({ inputRange: [0, 1], outputRange: [0, PANEL_H] });
 
-    const openPanel = (p: 'emoji' | 'gif') => {
+    const openPanel = (p: 'emoji' | 'giphy') => {
         if (panel === p) {
             setPanel('none');
             inputRef.current?.focus();
@@ -85,14 +100,11 @@ export default function CommentComposer({ replyingTo, onCancelReply, onSubmit, o
         setPanel(p);
     };
 
-    /* ----- reply target ----- */
     useEffect(() => {
-        if (!replyingTo) return;
-        setText((t) => (t.trim() ? t : `@${replyingTo.author.username} `));
-        inputRef.current?.focus();
+        if (replyingTo) inputRef.current?.focus();
     }, [replyingTo?._id]);
 
-    /* ----- recording ----- */
+    /* voice */
     const startRecording = async () => {
         setError('');
         try {
@@ -103,6 +115,7 @@ export default function CommentComposer({ replyingTo, onCancelReply, onSubmit, o
             stoppingRef.current = false;
             Keyboard.dismiss();
             setPanel('none');
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => { });
             recorder.record();
         } catch {
             setError('Could not access microphone');
@@ -115,6 +128,7 @@ export default function CommentComposer({ replyingTo, onCancelReply, onSubmit, o
         const seconds = Math.max(1, Math.round(recState.durationMillis / 1000));
         try {
             await recorder.stop();
+            await new Promise((r) => setTimeout(r, 250)); // let the file finish writing
             await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
             if (recorder.uri) setAttachment({ kind: 'voice', uri: recorder.uri, duration: seconds });
         } catch {
@@ -126,211 +140,140 @@ export default function CommentComposer({ replyingTo, onCancelReply, onSubmit, o
         if (isRecording && recState.durationMillis >= MAX_VOICE_SECONDS * 1000) stopRecording();
     }, [isRecording, recState.durationMillis]);
 
-    /* ----- media ----- */
-    const acceptAsset = (asset: ImagePicker.ImagePickerAsset) => {
-        const kind: 'image' | 'video' = asset.type === 'video' ? 'video' : 'image';
-        const mime = resolveMime(asset.uri, kind, asset.mimeType);
-        const allowed = kind === 'video' ? ALLOWED_VIDEO_TYPES : ALLOWED_IMAGE_TYPES;
-        if (!allowed.includes(mime)) return setError(`Unsupported type: ${mime}`);
-
-        const max = kind === 'video' ? MAX_VIDEO_SIZE : MAX_IMAGE_SIZE;
-        if (asset.fileSize && asset.fileSize > max) {
-            return setError(kind === 'video' ? 'Video must be under 50MB' : 'Image must be under 8MB');
+    /* image */
+    const pickImage = async () => {
+        setError('');
+        const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 1, exif: false });
+        if (res.canceled || !res.assets[0]) return;
+        setPreparing(true);
+        try {
+            setAttachment(await prepareImage(res.assets[0]));
+            setPanel('none');
+        } catch {
+            setError('Could not use that image');
+        } finally {
+            setPreparing(false);
         }
+    };
 
-        setAttachment({ kind, uri: asset.uri, mime, name: asset.fileName ?? `upload.${mime.split('/')[1] ?? 'jpg'}` });
+    const send = () => {
+        if (!canSend) return;
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { });
+        onSend({ content: text.trim(), attachment });
+        setText('');
+        setAttachment(null);
         setError('');
         setPanel('none');
     };
 
-    const pickMedia = async (kind: 'image' | 'video') => {
-        const res = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: [kind === 'image' ? 'images' : 'videos'],
-            quality: 0.9,
-        });
-        if (!res.canceled && res.assets[0]) acceptAsset(res.assets[0]);
-    };
-
-    /* ----- submit ----- */
-    const submit = async () => {
-        if (!canSend) return;
-        setSending(true);
-        setError('');
-
-        const draft = { content: text.trim(), attachment };
-        const err = replyingTo
-            ? await onReply(replyingTo, draft)   // saved as a reply in the thread
-            : await onSubmit(draft);             // saved as a new top-level comment
-
-        setSending(false);
-        if (err) {
-            setError(err);
-        } else {
-            setText('');
-            setAttachment(null);
-            setPanel('none');
-            if (replyingTo) onCancelReply();
-        }
-    };
-
-    const commentReply = async (c: Comment) => {
-        if (!canSend) return;
-        setSending(true);
-        setError('');
-        const err = await onReply(c, { content: text.trim(), attachment });
-        setSending(false);
-        if (err) {
-            setError(err);
-        } else {
-            setText('');
-            setAttachment(null);
-            setPanel('none');
-        }
-    };
-
-    /* ----- render ----- */
     const bottomPad = keyboardVisible || panel !== 'none' ? 10 : bottomInset + 10;
-    const tools = isRecording || sending;
+    const thumbUri = attachment && attachment.kind !== 'voice' ? (attachment.kind === 'image' ? attachment.uri : attachment.url) : null;
 
     return (
-        <View style={{ borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.08)' }}>
-            <View style={{ paddingTop: 12, paddingHorizontal: 16, paddingBottom: bottomPad, gap: 10 }}>
-                {replyingTo && (
+        <View className="border-t border-white/10">
+            <View className="gap-2.5 px-3.5 pt-2.5" style={{ paddingBottom: bottomPad }}>
+                {replyingTo ? (
                     <FadeIn key={replyingTo._id} y={6}>
-                        <GlassPanel
-                            radius={14}
-                            style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8 }}
-                        >
-                            <Text style={{ flex: 1, color: COLORS.muted, fontSize: 12 }} numberOfLines={1}>
-                                Replying to <Text style={{ color: COLORS.text, fontWeight: '700' }}>@{replyingTo.author.username}</Text>
+                        <View className="flex-row items-center rounded-2xl border border-white/10 bg-white/5 px-3 py-2">
+                            <Text className="flex-1 text-[12.5px]" style={{ color: COLORS.muted }} numberOfLines={1}>
+                                Replying to <Text style={{ color: COLORS.text, fontWeight: '800' }}>@{replyingTo.author.username}</Text>
                             </Text>
-                            <Pressable onPress={onCancelReply} hitSlop={10} accessibilityLabel="Cancel reply">
-                                <X size={16} color={COLORS.muted} />
+                            <Pressable onPress={onCancelReply} hitSlop={10} accessibilityLabel="Cancel reply" className="h-6 w-6 items-center justify-center rounded-full bg-white/10 active:opacity-60">
+                                <X size={14} color={ICON} />
                             </Pressable>
-                        </GlassPanel>
+                        </View>
                     </FadeIn>
-                )}
+                ) : null}
 
-                {attachment && (
-                    <FadeIn key={attachment.kind === 'gif' ? attachment.url : attachment.uri} y={8}>
+                {attachment ? (
+                    <FadeIn key={thumbUri ?? 'voice'} y={8}>
                         {attachment.kind === 'voice' ? (
-                            <VoiceNotePreview
-                                uri={attachment.uri}
-                                duration={attachment.duration}
-                                onRemove={() => setAttachment(null)}
-                            />
+                            <VoiceNotePreview uri={attachment.uri} duration={attachment.duration} onRemove={() => setAttachment(null)} />
                         ) : (
-                            <GlassPanel radius={20} style={{ height: 150 }}>
-                                {attachment.kind === 'video' ? (
-                                    <VideoPreview uri={attachment.uri} />
-                                ) : (
-                                    <Image
-                                        source={{ uri: attachment.kind === 'gif' ? attachment.url : attachment.uri }}
-                                        style={{ width: '100%', height: '100%' }}
-                                        resizeMode="contain"
-                                    />
-                                )}
-                                <View style={{ position: 'absolute', top: 8, right: 8 }}>
-                                    <IconButton Icon={Trash2} label="Remove attachment" size={34} onPress={() => setAttachment(null)} />
-                                </View>
-                            </GlassPanel>
+                            <View className="h-24 w-24">
+                                <Image
+                                    source={{ uri: thumbUri! }}
+                                    className="h-24 w-24 rounded-2xl bg-white/5"
+                                    contentFit={attachment.kind === 'sticker' ? 'contain' : 'cover'}
+                                />
+                                <Pressable
+                                    onPress={() => setAttachment(null)}
+                                    hitSlop={8}
+                                    accessibilityLabel="Remove attachment"
+                                    className="absolute -right-1.5 -top-1.5 h-6 w-6 items-center justify-center rounded-full border border-white/25 bg-[#14161e] active:opacity-60"
+                                >
+                                    <X size={13} color="#fff" />
+                                </Pressable>
+                            </View>
                         )}
                     </FadeIn>
-                )}
+                ) : null}
 
-                {!!error && <Text style={{ color: '#f87171', fontSize: 12 }}>{error}</Text>}
+                {error ? <Text className="text-xs text-red-400">{error}</Text> : null}
 
                 {isRecording ? (
-                    <RecordingBar
-                        seconds={Math.floor(recState.durationMillis / 1000)}
-                        max={MAX_VOICE_SECONDS}
-                        onStop={stopRecording}
-                    />
+                    <RecordingBar seconds={Math.floor(recState.durationMillis / 1000)} max={MAX_VOICE_SECONDS} onStop={stopRecording} />
                 ) : (
-                    <GlassPanel radius={22} style={{ paddingHorizontal: 14, paddingVertical: Platform.OS === 'ios' ? 11 : 4 }}>
-                        <TextInput
-                            ref={inputRef}
-                            value={text}
-                            onChangeText={setText}
-                            onFocus={() => setPanel('none')}
-                            placeholder={replyingTo ? `Reply to @${replyingTo.author.username}` : 'Add a comment...'}
-                            placeholderTextColor={COLORS.muted}
-                            selectionColor="#ffffff"
-                            maxLength={MAX_COMMENT}
-                            multiline
-                            style={{
-                                color: COLORS.text,
-                                fontSize: 15,
-                                lineHeight: 21,
-                                minHeight: 24,
-                                maxHeight: 110,
-                                padding: 0,
-                                textAlignVertical: 'center',
-                            }}
-                        />
-                    </GlassPanel>
+                    <View className="flex-row items-end gap-2">
+                        <View
+                            className="flex-1 flex-row items-end rounded-3xl border bg-white/5 px-1.5 py-1"
+                            style={{ borderColor: focused ? COLORS.accent : 'rgba(255,255,255,0.12)' }}
+                        >
+                            <ToolButton Icon={Smile} label="Emoji" active={panel === 'emoji'} onPress={() => openPanel('emoji')} />
+                            <TextInput
+                                ref={inputRef}
+                                value={text}
+                                onChangeText={setText}
+                                onFocus={() => { setFocused(true); setPanel('none'); }}
+                                onBlur={() => setFocused(false)}
+                                placeholder={replyingTo ? `Reply to @${replyingTo.author.username}` : 'Add a comment…'}
+                                placeholderTextColor={COLORS.muted}
+                                selectionColor={COLORS.accent}
+                                maxLength={MAX_COMMENT}
+                                multiline
+                                className="min-h-[38px] max-h-28 flex-1 px-1 text-[15px] leading-[21px]"
+                                style={{
+                                    color: COLORS.text,
+                                    paddingTop: Platform.OS === 'ios' ? 9 : 7,
+                                    paddingBottom: Platform.OS === 'ios' ? 9 : 7,
+                                    textAlignVertical: 'center',
+                                }}
+                            />
+                            <ToolButton Icon={Sticker} label="GIFs and stickers" active={panel === 'giphy'} onPress={() => openPanel('giphy')} />
+                            <ToolButton Icon={ImageIcon} label="Add photo" disabled={preparing} onPress={pickImage} />
+                        </View>
+
+                        <Animated.View style={{ transform: [{ scale: pop }] }}>
+                            <Pressable
+                                onPress={canSend ? send : startRecording}
+                                disabled={preparing}
+                                accessibilityRole="button"
+                                accessibilityLabel={canSend ? 'Send comment' : 'Record voice note'}
+                                className="h-11 w-11 items-center justify-center rounded-full border active:opacity-80"
+                                style={{
+                                    backgroundColor: canSend ? COLORS.accent : 'rgba(255,255,255,0.1)',
+                                    borderColor: canSend ? COLORS.accent : 'rgba(255,255,255,0.14)',
+                                }}
+                            >
+                                {preparing ? (
+                                    <ActivityIndicator color="#fff" />
+                                ) : canSend ? (
+                                    <ArrowUp size={22} color="#fff" strokeWidth={2.6} />
+                                ) : (
+                                    <Mic size={20} strokeWidth={2.2} color={ICON} />
+                                )}
+                            </Pressable>
+                        </Animated.View>
+                    </View>
                 )}
 
-                {/* tools + send */}
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <IconButton Icon={ImageIcon} label="Add photo" size={42} disabled={tools} onPress={() => pickMedia('image')} />
-                    <IconButton Icon={VideoIcon} label="Add video" size={42} disabled={tools} onPress={() => pickMedia('video')} />
-                    <IconButton
-                        Icon={isRecording ? Square : Mic}
-                        label={isRecording ? 'Stop recording' : 'Record voice note'}
-                        size={42}
-                        disabled={sending}
-                        color={isRecording ? '#f87171' : COLORS.text}
-                        active={isRecording}
-                        onPress={isRecording ? stopRecording : startRecording}
-                    />
-                    <IconButton
-                        Icon={Smile}
-                        label="Emoji"
-                        size={42}
-                        disabled={tools}
-                        active={panel === 'emoji'}
-                        color={panel === 'emoji' ? COLORS.accent : COLORS.text}
-                        onPress={() => openPanel('emoji')}
-                    />
-                    <Pressable
-                        onPress={() => openPanel('gif')}
-                        disabled={tools}
-                        accessibilityRole="button"
-                        accessibilityLabel="GIF"
-                        style={{ opacity: tools ? 0.45 : 1 }}
-                    >
-                        {({ pressed }) => (
-                            <NeoView radius={15} pressed={pressed || panel === 'gif'} style={{ width: 42, height: 42 }}>
-                                <Text style={{ color: panel === 'gif' ? COLORS.accent : COLORS.text, fontSize: 12, fontWeight: '800' }}>
-                                    GIF
-                                </Text>
-                            </NeoView>
-                        )}
-                    </Pressable>
-
-                    <View style={{ flex: 1 }} />
-
-                    <Pressable onPress={submit} disabled={!canSend} accessibilityRole="button" accessibilityLabel="Send comment">
-                        {({ pressed }) => (
-                            <NeoView
-                                accent={canSend}
-                                pressed={pressed && canSend}
-                                radius={16}
-                                style={{ width: 52, height: 44, opacity: canSend ? 1 : 0.5 }}
-                            >
-                                {sending ? (
-                                    <ActivityIndicator color="#fff" />
-                                ) : (
-                                    <Send size={19} color={canSend ? '#fff' : COLORS.muted} />
-                                )}
-                            </NeoView>
-                        )}
-                    </Pressable>
-                </View>
+                {text.length > MAX_COMMENT - 80 ? (
+                    <Text className="text-right text-[11px]" style={{ color: text.length >= MAX_COMMENT ? '#f87171' : COLORS.muted }}>
+                        {text.length}/{MAX_COMMENT}
+                    </Text>
+                ) : null}
             </View>
 
-            {/* emoji / gif panel */}
             <Animated.View style={{ height: panelHeight, overflow: 'hidden' }}>
                 <View style={{ height: PANEL_H }}>
                     {panelMounted &&
@@ -340,9 +283,9 @@ export default function CommentComposer({ replyingTo, onCancelReply, onSubmit, o
                                 onBackspace={() => setText((t) => removeLastChar(t))}
                             />
                         ) : (
-                            <GifPanel
+                            <GiphyPanel
                                 onPick={(g) => {
-                                    setAttachment({ kind: 'gif', url: g.url });
+                                    setAttachment({ kind: g.kind, url: g.url, width: g.width, height: g.height });
                                     setPanel('none');
                                 }}
                             />

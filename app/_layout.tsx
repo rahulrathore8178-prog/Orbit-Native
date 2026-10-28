@@ -1,4 +1,4 @@
-import '../global.css';
+import '@/global.css';
 import { useEffect, useRef } from 'react';
 import { View, DeviceEventEmitter } from 'react-native';
 import { Stack, ThemeProvider, DarkTheme, useRouter, router } from 'expo-router';
@@ -16,6 +16,10 @@ import { ShareQuickHost } from '@/components/postCard/ShareQuick'; // TODO: adju
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { COLORS } from '@/constants/capsule/constants';
 import * as SystemUI from 'expo-system-ui';
+import { CallProvider } from '@/lib/calls/callProvider';
+import { CallHost } from '@/components/calls/CallHost';
+import { API_URL } from '@/lib/utils';
+import { IncomingChatToaster } from '@/components/chats/IncomingChatToaster';
 
 SplashScreen.preventAutoHideAsync();
 setupAxios(); // interceptors installed once, before any screen makes a request
@@ -87,7 +91,8 @@ useEffect(() => {
 }, [lastResponse, status]);
 
   return (
-    <>
+    // Calls: realtime socket + WebRTC live here so an incoming call can ring on any screen.
+    <CallProvider apiUrl={API_URL} userId={isSignedIn ? currentUserId : null}>
       {/* The navigator is ALWAYS mounted. In SDK 58 the router builds its state from the
           launch URL ('/'), so it needs a navigator to exist on the first render. */}
       <Stack screenOptions={{ headerShown: false }}>
@@ -109,6 +114,10 @@ useEffect(() => {
       {/* Quick-share overlay (hold-and-pan friend list + "Shared" toast).
           Mounted once, signed-in only, above the navigator. It ignores touches (pointerEvents none). */}
       {isSignedIn ? <ShareQuickHost currentUserId={currentUserId} /> : null}
+      {isSignedIn ? <IncomingChatToaster /> : null}
+
+      {/* Full-screen incoming / outgoing / active call UI, above everything else. */}
+      {isSignedIn ? <CallHost /> : null}
 
       {/* Loader sits on top instead of replacing the navigator. */}
       {status === 'loading' ? (
@@ -116,7 +125,7 @@ useEffect(() => {
           <OrbitLoader />
         </View>
       ) : null}
-    </>
+    </CallProvider>
   );
 }
 

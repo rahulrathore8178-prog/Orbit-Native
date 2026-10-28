@@ -155,6 +155,12 @@ export default function HomeScreen() {
             setTimeout(() => router.push('/orbital'), 260);
         } else if (key === 'discover') {
             setTimeout(() => router.push(`/discover/discover`), 260);
+        } else if (key === 'settings') {
+            setTimeout(() => router.push(`/profile/settings`), 260);
+        } else if (key === 'profile') {
+            setTimeout(() => router.push(`/profile`), 260);
+        } else {
+            setDrawerOpen(false);
         }
     };
 
@@ -258,7 +264,7 @@ export default function HomeScreen() {
                 blurTarget={blurTarget}
                 topInset={insets.top}
                 onLayoutHeight={setHeaderH}
-                onOpenMenu={() => setDrawerOpen(true)}
+                onOpenMenu={open}
                 tabs={tabs}
                 currentUser={currentUserProps}
             />
