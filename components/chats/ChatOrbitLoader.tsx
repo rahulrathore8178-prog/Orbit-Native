@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react'
-import { Text, View } from 'react-native'
+import { View } from 'react-native'
 import Animated, {
     Easing,
     FadeIn,
@@ -111,6 +111,29 @@ function Core() {
     )
 }
 
+/** The three-ring orbit animation on its own. `scale` shrinks it (and its layout box) for inline use. */
+export function OrbitSpinner({ scale = 1 }: { scale?: number }) {
+    const box = 140 * scale
+    return (
+        <View style={{ width: box, height: box, alignItems: 'center', justifyContent: 'center' }}>
+            <View
+                style={{
+                    width: 140,
+                    height: 140,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    transform: [{ scale }],
+                }}
+            >
+                <Ring size={132} duration={2100} color="#6366f1" dot={5} reverse />
+                <Ring size={96} duration={1400} color="#38bdf8" dot={6} twin />
+                <Ring size={60} duration={950} color="#ffffff" dot={4} reverse />
+                <Core />
+            </View>
+        </View>
+    )
+}
+
 /** Premium dark orbit loader: black background, three counter-rotating rings with fast glowing dots. */
 export function ChatOrbitLoader() {
     const textPulse = useSharedValue(0.35)
@@ -138,12 +161,7 @@ export function ChatOrbitLoader() {
                 justifyContent: 'center',
             }}
         >
-            <View style={{ width: 140, height: 140, alignItems: 'center', justifyContent: 'center' }}>
-                <Ring size={132} duration={2100} color="#6366f1" dot={5} reverse />
-                <Ring size={96} duration={1400} color="#38bdf8" dot={6} twin />
-                <Ring size={60} duration={950} color="#ffffff" dot={4} reverse />
-                <Core />
-            </View>
+            <OrbitSpinner />
 
             <Animated.Text
                 style={[

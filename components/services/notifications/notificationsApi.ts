@@ -4,13 +4,19 @@ import { authStorage } from '@/lib/auth/authStorage';
 
 const BASE = '/api/auth/user/notifications';
 
+export type NotificationData = {
+    postId?: string; commentId?: string; replyId?: string;
+    userId?: string; orbitalId?: string; actorId?: string; url?: string;
+};
+
 export type AppNotification = {
     _id: string;
     title: string;
     detail?: string;
     isRead: boolean;
     createdAt: string;
-    type?: string; // optional: used only to pick the icon
+    type?: string;
+    data?: NotificationData;
 };
 
 async function request<T = any>(config: AxiosRequestConfig): Promise<T> {

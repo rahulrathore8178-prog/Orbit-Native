@@ -1,17 +1,24 @@
+import { useCreatePostDispatch } from '@/redux/slice/createPost/hooks';
 import * as ImagePicker from 'expo-image-picker';
 import { useCallback } from 'react';
-import {
-    ALLOWED_IMAGE_TYPES,
-    ALLOWED_VIDEO_TYPES,
-    MAX_IMAGE_SIZE,
-    MAX_VIDEO_SIZE,
-    resolveMime,
-} from '../../constants/createPost/external';
 import { VIDEO_MAX_SECONDS } from '../../constants/createPost/constants';
+import {
+  ALLOWED_IMAGE_TYPES,
+  ALLOWED_VIDEO_TYPES,
+  MAX_IMAGE_SIZE,
+  MAX_VIDEO_SIZE,
+  resolveMime,
+} from '../../constants/createPost/external';
 import { setError, setMedia } from '../../redux/slice/createPost/createPostSlice';
-import { useCreatePostDispatch } from '@/redux/slice/createPost/hooks';
 
 const mb = (bytes: number) => Math.round(bytes / (1024 * 1024));
+
+/**
+ * allowsEditing opens the native editor right after picking:
+ * photos get a crop UI, and iOS gallery videos get a trim UI.
+ * (iOS always crops to a square; Android supports free aspect.)
+ */
+const EDITING = { allowsEditing: true, quality: 0.9 } as const;
 
 /**
  * Gallery, camera photo and camera video, with permission + size/type validation.
@@ -48,20 +55,28 @@ export function useMediaPicker(voiceActive = false) {
   );
 
   const pickFromGallery = useCallback(async () => {
-    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images', 'videos'], quality: 0.9 });
-    if (!res.canceled && res.assets[0]) accept(res.assets[0]);
-  }, [accept]);
+    try {
+      const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images', 'videos'], ...EDITING });
+      if (!res.canceled && res.assets[0]) accept(res.assets[0]);
+    } catch {
+      dispatch(setError('Could not open your gallery'));
+    }
+  }, [accept, dispatch]);
 
   const capture = useCallback(
     async (mode: 'photo' | 'video') => {
-      const perm = await ImagePicker.requestCameraPermissionsAsync();
-      if (!perm.granted) return dispatch(setError('Camera permission denied'));
-      const res = await ImagePicker.launchCameraAsync(
-        mode === 'video'
-          ? { mediaTypes: ['videos'], videoMaxDuration: VIDEO_MAX_SECONDS, quality: 0.9 }
-          : { mediaTypes: ['images'], quality: 0.9 },
-      );
-      if (!res.canceled && res.assets[0]) accept(res.assets[0]);
+      try {
+        const perm = await ImagePicker.requestCameraPermissionsAsync();
+        if (!perm.granted) return dispatch(setError('Camera permission denied'));
+        const res = await ImagePicker.launchCameraAsync(
+          mode === 'video'
+            ? { mediaTypes: ['videos'], videoMaxDuration: VIDEO_MAX_SECONDS, quality: 0.9 }
+            : { mediaTypes: ['images'], ...EDITING },
+        );
+        if (!res.canceled && res.assets[0]) accept(res.assets[0]);
+      } catch {
+        dispatch(setError('Could not open the camera'));
+      }
     },
     [accept, dispatch],
   );

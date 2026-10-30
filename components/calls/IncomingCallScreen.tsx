@@ -1,10 +1,11 @@
+import { useCall } from '@/lib/calls/callProvider';
+import { setMinimized } from '@/lib/calls/callUI';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Phone, PhoneOff, Video } from 'lucide-react-native';
+import { ChevronDown, Phone, PhoneOff, Video } from 'lucide-react-native';
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInDown, FadeInUp, ZoomIn } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useCall } from '@/lib/calls/callProvider';
 import { CallAvatar } from './CallAvatar';
 import { CallButton } from './CallButton';
 
@@ -16,7 +17,7 @@ export function IncomingCallScreen() {
     return (
         <View className="flex-1 bg-black">
             <LinearGradient
-                colors={['#04060c', '#0a1c4a', '#04060c']}
+                colors={['#010206', '#060f2e', '#010206']}
                 locations={[0, 0.5, 1]}
                 style={StyleSheet.absoluteFill}
             />
@@ -44,6 +45,17 @@ export function IncomingCallScreen() {
                     <CallButton Icon={isVideo ? Video : Phone} label="Accept" tone="accept" size={74} onPress={acceptCall} />
                 </Animated.View>
             </View>
+
+            <Pressable
+                onPress={() => setMinimized(true)}
+                hitSlop={12}
+                accessibilityRole="button"
+                accessibilityLabel="Minimize"
+                className="absolute h-10 w-10 items-center justify-center rounded-full bg-white/10"
+                style={{ left: 16, top: insets.top + 12 }}
+            >
+                <ChevronDown size={22} color="#fff" strokeWidth={2.4} />
+            </Pressable>
         </View>
     );
 }

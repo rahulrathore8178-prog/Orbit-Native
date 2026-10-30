@@ -31,6 +31,7 @@ export type ProfilePost = {
     updatedAt: string;
     likesCount: number;
     commentsCount: number;
+    views?: number,
     likedBy?: string[];
     isLikedByCurrentUser?: boolean;
     isSaved?: boolean;

@@ -1,13 +1,34 @@
 import { useCall } from '@/lib/calls/callProvider';
+import { setMinimized } from '@/lib/calls/callUI';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Mic, MicOff, PhoneOff, Video, VideoOff, Volume2, WifiOff } from 'lucide-react-native';
+import {
+    Bluetooth,
+    Check,
+    ChevronDown,
+    Headphones,
+    Mic,
+    MicOff,
+    PhoneOff,
+    Smartphone,
+    Video,
+    VideoOff,
+    Volume2,
+    WifiOff,
+} from 'lucide-react-native';
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
-import Animated, { FadeIn, FadeInDown, FadeInUp } from 'react-native-reanimated';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import Animated, { FadeIn, FadeInDown, FadeInUp, FadeOut } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { RTCView } from 'react-native-webrtc';
 import { CallAvatar } from './CallAvatar';
 import { CallButton } from './CallButton';
+
+const ROUTE_META: Record<string, { label: string; Icon: any }> = {
+    EARPIECE: { label: 'Phone', Icon: Smartphone },
+    SPEAKER_PHONE: { label: 'Speaker', Icon: Volume2 },
+    WIRED_HEADSET: { label: 'Headphones', Icon: Headphones },
+    BLUETOOTH: { label: 'Bluetooth', Icon: Bluetooth },
+};
 
 /** m:ss since the call connected, ticking every second. */
 function useElapsed(connectedAt: number | null) {
@@ -27,21 +48,23 @@ function useElapsed(connectedAt: number | null) {
 
 /**
  * Everything that is not "someone is calling me":
- *   outgoing    ringing on their side ("Calling…")
- *   connecting  answered, media is being negotiated
- *   active      talking (timer, mute / speaker / camera controls, video if either side turned it on)
- *   ended       brief summary ("Call declined", "No answer", "Call ended · 2:31") before the overlay closes
+ *   outgoing / connecting / active (timer + controls + video) / ended (short summary)
  */
 export function ActiveCallScreen() {
-    const { state, endCall, toggleMute, toggleSpeaker, toggleCamera } = useCall();
+    const { state, endCall, toggleMute, toggleSpeaker, toggleCamera, audioDevices, audioRoute, setAudioRoute } =
+        useCall();
     const insets = useSafeAreaInsets();
     const elapsed = useElapsed(state.phase === 'active' ? state.connectedAt : null);
+    const [routeOpen, setRouteOpen] = useState(false);
 
     const { phase } = state;
     const isEnded = phase === 'ended';
     const isActive = phase === 'active';
     const showRemoteVideo = isActive && state.peerVideoOn && !!state.remoteVideoURL;
     const showLocalPreview = isActive && state.isCameraOn && !!state.localVideoURL;
+
+    const hasExternal = audioDevices.includes('BLUETOOTH') || audioDevices.includes('WIRED_HEADSET');
+    const routeMeta = ROUTE_META[audioRoute] ?? ROUTE_META.EARPIECE;
 
     const status = isEnded
         ? state.endLabel ?? 'Call ended'
@@ -74,7 +97,7 @@ export function ActiveCallScreen() {
                 </>
             ) : (
                 <LinearGradient
-                    colors={['#04060c', '#0a1c4a', '#04060c']}
+                    colors={['#010206', '#060f2e', '#010206']}
                     locations={[0, 0.5, 1]}
                     style={StyleSheet.absoluteFill}
                 />
@@ -137,10 +160,18 @@ export function ActiveCallScreen() {
                             onPress={toggleMute}
                         />
                         <CallButton
-                            Icon={Volume2}
-                            label="Speaker"
-                            tone={state.isSpeaker ? 'active' : 'glass'}
-                            onPress={toggleSpeaker}
+                            Icon={hasExternal ? routeMeta.Icon : Volume2}
+                            label={hasExternal ? routeMeta.label : 'Speaker'}
+                            tone={
+                                hasExternal
+                                    ? audioRoute === 'EARPIECE'
+                                        ? 'glass'
+                                        : 'active'
+                                    : state.isSpeaker
+                                      ? 'active'
+                                      : 'glass'
+                            }
+                            onPress={hasExternal ? () => setRouteOpen(true) : toggleSpeaker}
                         />
                         <CallButton
                             Icon={state.isCameraOn ? VideoOff : Video}
@@ -162,6 +193,52 @@ export function ActiveCallScreen() {
                     </Animated.View>
                 )}
             </View>
+
+            {/* Minimize -> call continues in the glass pill while you use the app */}
+            {!isEnded ? (
+                <Pressable
+                    onPress={() => setMinimized(true)}
+                    hitSlop={12}
+                    accessibilityRole="button"
+                    accessibilityLabel="Minimize call"
+                    className="absolute h-10 w-10 items-center justify-center rounded-full bg-white/10"
+                    style={{ left: 16, top: insets.top + 12 }}
+                >
+                    <ChevronDown size={22} color="#fff" strokeWidth={2.4} />
+                </Pressable>
+            ) : null}
+
+            {/* Audio output picker (shown when bluetooth / wired is available) */}
+            {routeOpen && !isEnded ? (
+                <>
+                    <Pressable style={StyleSheet.absoluteFill} onPress={() => setRouteOpen(false)} />
+                    <Animated.View
+                        entering={FadeInDown.duration(200)}
+                        exiting={FadeOut.duration(150)}
+                        className="absolute left-5 right-5 rounded-3xl border border-white/15 bg-black/85 p-2"
+                        style={{ bottom: insets.bottom + 150 }}
+                    >
+                        {audioDevices.map((d) => {
+                            const m = ROUTE_META[d];
+                            if (!m) return null;
+                            return (
+                                <Pressable
+                                    key={d}
+                                    onPress={() => {
+                                        void setAudioRoute(d);
+                                        setRouteOpen(false);
+                                    }}
+                                    className="flex-row items-center rounded-2xl px-4 py-3.5 active:bg-white/10"
+                                >
+                                    <m.Icon size={20} color="#fff" strokeWidth={2.2} />
+                                    <Text className="ml-3 flex-1 text-[15px] font-semibold text-white">{m.label}</Text>
+                                    {d === audioRoute ? <Check size={18} color="#38bdf8" strokeWidth={2.6} /> : null}
+                                </Pressable>
+                            );
+                        })}
+                    </Animated.View>
+                </>
+            ) : null}
 
             {/* My own camera, picture-in-picture */}
             {showLocalPreview ? (

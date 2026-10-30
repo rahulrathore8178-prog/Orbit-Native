@@ -20,6 +20,7 @@ import { CallProvider } from '@/lib/calls/callProvider';
 import { CallHost } from '@/components/calls/CallHost';
 import { API_URL } from '@/lib/utils';
 import { IncomingChatToaster } from '@/components/chats/IncomingChatToaster';
+import { NotificationExpandHost } from '@/components/notification/NotificationExpand';
 
 SplashScreen.preventAutoHideAsync();
 setupAxios(); // interceptors installed once, before any screen makes a request
@@ -118,6 +119,7 @@ useEffect(() => {
 
       {/* Full-screen incoming / outgoing / active call UI, above everything else. */}
       {isSignedIn ? <CallHost /> : null}
+      {isSignedIn ? <NotificationExpandHost /> : null}
 
       {/* Loader sits on top instead of replacing the navigator. */}
       {status === 'loading' ? (

@@ -4,9 +4,10 @@ import { Toast, useToast } from '@/components/ui/chats/ui'
 import { useConversations } from '@/hooks/chats/useConversation'
 import { fetchFriends, Friend } from '@/redux/slice/friends'
 import { RootState, useAppDispatch } from '@/redux/store'
-import { router } from 'expo-router'
+import { router,useFocusEffect } from 'expo-router'
 import React, { useCallback, useEffect } from 'react'
 import { View } from 'react-native'
+import { setUnread } from '@/redux/slice/chatBadgeSlice'
 import { useSelector } from 'react-redux'
 
 // The ONLY chat screen inside the tabs. Opening a chat pushes /chats/[id], which sits outside (tabs),
@@ -20,6 +21,12 @@ export default function MessagesTab() {
   useEffect(() => {
     dispatch(fetchFriends())
   }, [dispatch])
+
+  useFocusEffect(
+  useCallback(() => {
+    dispatch(setUnread(false))
+  }, [dispatch])
+)
 
   const openChat = useCallback(
     (c: Friend) => {

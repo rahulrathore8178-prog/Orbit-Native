@@ -60,6 +60,8 @@ export type SharedPostcardProps = Omit<PostcardProps, 'onPressComments' | 'onCli
     onArchive?: (id: string) => void | Promise<void>;
     /** Must reject when saving fails, so the card can show the error and keep the draft. */
     onEditCaption?: (id: string, content: string) => Promise<void>;
+    showViews?: boolean;
+    views?: number;
 };
 
 /* ------------------------------ constants ----------------------------- */
@@ -608,6 +610,8 @@ const Postcard = ({
     manageable = false,
     onArchive,
     onEditCaption,
+    showViews = false,
+    views = 0,
 }: SharedPostcardProps) => {
     const { width: screenWidth, height: screenHeight } = useWindowDimensions();
 
@@ -906,14 +910,17 @@ const Postcard = ({
                         <View className="flex-row items-center justify-between">
                             <View className="h-10 w-10" />
 
-                            <View className="flex-row items-center rounded-full border border-white/10 bg-white/[0.06] px-7 py-2.5">
+                            <View
+                                className={`flex-row items-center rounded-full border border-white/10 bg-white/[0.06] py-2.5 ${showViews ? 'px-5' : 'px-7'
+                                    }`}
+                            >
                                 <TouchableOpacity
                                     onPress={onLikePress}
                                     activeOpacity={0.75}
                                     hitSlop={6}
                                     accessibilityRole="button"
                                     accessibilityLabel={liked ? 'Unlike post' : 'Like post'}
-                                    className="mr-7 flex-row items-center"
+                                    className={`flex-row items-center ${showViews ? 'mr-5' : 'mr-7'}`}
                                 >
                                     <Animated.View style={{ transform: [{ scale: heartScale }], marginRight: 6, zIndex: 10 }}>
                                         <Ionicons
@@ -931,11 +938,18 @@ const Postcard = ({
                                     hitSlop={6}
                                     accessibilityRole="button"
                                     accessibilityLabel="Open comments"
-                                    className="mr-7 flex-row items-center"
+                                    className={`flex-row items-center ${showViews ? 'mr-5' : 'mr-7'}`}
                                 >
                                     <Ionicons name="chatbubble-outline" size={20} color={ICON_COLOR} style={{ marginRight: 6 }} />
                                     <Text className="text-[12.5px] text-white/90">{commentsCount}</Text>
                                 </TouchableOpacity>
+
+                                {showViews && (
+                                    <View accessible accessibilityLabel={`${views} views`} className="mr-5 flex-row items-center">
+                                        <Ionicons name="eye-outline" size={20} color={ICON_COLOR} style={{ marginRight: 6 }} />
+                                        <Text className="text-[12.5px] text-white/90">{formatCount(views)}</Text>
+                                    </View>
+                                )}
 
                                 <TouchableOpacity
                                     onPress={toggleSaved}

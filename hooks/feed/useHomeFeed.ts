@@ -15,6 +15,7 @@ import { API_URL } from '../../lib/utils';
 
 /** Returns true if the server counted it (false = already viewed by this user). */
 export async function registerView(postId: string): Promise<boolean> {
+    console.log('registerView', postId);
     const { data } = await axios.post(`${API_URL}/api/community/posts/${postId}/view`, null, {
         withCredentials: true,
         headers: await getAuthHeaders(),

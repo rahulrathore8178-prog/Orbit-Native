@@ -1,30 +1,32 @@
 import { DESTINATIONS } from '@/constants/createPost/constants';
 import { useCurrentUser } from '@/hooks/createPost/useCurrentUser';
 import { useDestinationPan } from '@/hooks/createPost/useDestinationPan';
+import { useMediaPicker } from '@/hooks/createPost/useMediaPicker';
 import { useTransientFlag } from '@/hooks/createPost/useTransientFlag';
 import { useVoiceNote } from '@/hooks/createPost/useVoiceNote';
 import { useCallback, useEffect } from 'react';
-import { Alert, Platform, ScrollView, View } from 'react-native';
+import { Platform, ScrollView, View } from 'react-native';
 import { GestureDetector } from 'react-native-gesture-handler';
 import type { CreatePostProps, Destination } from '../../constants/createPost/types';
-import { ComposerFooter } from './ComposerFooter';
-import { useMediaPicker } from '@/hooks/createPost/useMediaPicker';
-import { selectCreatePost } from '../../hooks/createPost/selectors';
 import {
   clearMedia,
   closeComposer,
   loadOrbitals,
   openComposer,
-  selectOrbital,
   setCaption,
   setDestination,
+  setError,
   submitPost,
+  toggleOrbital,
+  type PostDraft,
 } from '../../redux/slice/createPost/createPostSlice';
 import { useCreatePostDispatch, useCreatePostSelector } from '../../redux/slice/createPost/hooks';
 import { analyzeImage } from '../services/createPost/postApi';
+import { showToast } from '../ui/GlassToast'; // <-- adjust to wherever your toast file lives
 import { BottomSheet } from './BottomSheet';
 import { CaptionInput } from './CaptionInput';
 import { ComposerFab } from './ComposerFab';
+import { ComposerFooter } from './ComposerFooter';
 import { ComposerHeader } from './ComposerHeader';
 import { DestinationPager } from './DestinationPager';
 import { DestinationTabs } from './DestinationTabs';
@@ -32,32 +34,38 @@ import { ErrorBanner } from './ErrorBanner';
 import { MediaPreview } from './MediaPreview';
 // [VOICE-NOTES] import { MAX_RECORDING_SECONDS, RecordingBar, VoiceNotePreview } from './external';
 
-const notify = (title: string, message: string) =>
-  Platform.OS === 'web' ? window.alert(`${title}\n\n${message}`) : Alert.alert(title, message);
+const EMPTY_IDS: string[] = []; // stable reference, so memoized children don't re-render
+
+/** Held long enough for big uploads; the success / error toast replaces it in place when the request ends. */
+const POSTING_TOAST_MS = 120_000;
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 /**
  * Container: wires redux state, hooks and the presentational components together.
- * Anything visual lives in ./components, anything stateful in ./store and ./hooks.
+ * Posting is fire-and-forget from the UI's point of view: the sheet closes immediately,
+ * a toast shows progress, and the upload continues in the background (see submitPost in the slice).
  */
-export default function CreatePost({ onPostCreated, user, bottomOffset = 100 }: CreatePostProps) {
+export default function CreatePost({ user, bottomOffset = 100 }: CreatePostProps) {
   const dispatch = useCreatePostDispatch();
-  const { isOpen, destination, caption, media, selectedOrbitalId, orbitals, orbitalsStatus, status, error } =
-    useCreatePostSelector(selectCreatePost);
+  const { isOpen, destination, caption, media, orbitals, orbitalsStatus, error, ...rest } = useCreatePostSelector(
+    (s) => s.createPost,
+  );
+  const selectedOrbitalIds = rest.selectedOrbitalIds ?? EMPTY_IDS;
 
   const currentUser = useCurrentUser(user);
   const voiceNote = useVoiceNote(); // inert until enabled, see hooks/useVoiceNote.ts
   const picker = useMediaPicker(!!voiceNote.voice || voiceNote.isRecording);
   const [comingSoon, showComingSoon] = useTransientFlag(1800);
 
-  const isPosting = status === 'posting';
   const hasVoice = !!voiceNote.voice;
   const hasContent = caption.trim().length > 0 || !!media || hasVoice;
   const hasDraft = hasContent || voiceNote.isRecording;
-  const canPost = !isPosting && !voiceNote.isRecording && hasContent;
+  const canPost = !voiceNote.isRecording && hasContent;
 
   /* ----- destination swipe ----- */
   const changeDestination = useCallback((d: Destination) => dispatch(setDestination(d)), [dispatch]);
-  const { progress, gesture, setPageWidth } = useDestinationPan(destination, changeDestination, !isPosting);
+  const { progress, gesture, setPageWidth } = useDestinationPan(destination, changeDestination, true);
 
   /* ----- orbitals: prefetch as soon as the sheet opens so the swipe never shows a spinner ----- */
   useEffect(() => {
@@ -66,46 +74,77 @@ export default function CreatePost({ onPostCreated, user, bottomOffset = 100 }: 
 
   /* ----- actions ----- */
   const requestClose = useCallback(async () => {
-    if (isPosting) return;
     if (voiceNote.isRecording) await voiceNote.stop(); // keep what was recorded as the draft
     dispatch(closeComposer());
-  }, [isPosting, voiceNote, dispatch]);
+  }, [voiceNote, dispatch]);
 
-  const handlePost = useCallback(async () => {
-    const imageToAnalyze = media?.kind === 'image' ? media : null; // redux clears media on success
-    try {
-      const { created, failed } = await dispatch(submitPost({ voice: voiceNote.voice })).unwrap();
-
-      created.forEach((c) => {
-        onPostCreated?.(c.post, c.target);
-        if (imageToAnalyze) analyzeImage(imageToAnalyze, c.post?.id ?? c.post?._id);
-      });
-      voiceNote.remove();
-
-      if (failed.length) {
-        notify(
-          'Partly posted',
-          `Posted to ${created.map((c) => c.target).join(' & ')}, but the ${failed
-            .map((f) => f.target)
-            .join(' & ')} post failed: ${failed[0].message}`,
-        );
-      }
-    } catch {
-      // the error message is already in redux and shown by <ErrorBanner />
+  const handlePost = useCallback(() => {
+    if (!canPost) return;
+    if (destination === 'orbital' && !selectedOrbitalIds.length) {
+      dispatch(setError('Select at least one orbital'));
+      return;
     }
-  }, [dispatch, media, onPostCreated, voiceNote]);
+
+    // snapshot now: the slice closes the sheet and clears the draft the moment we dispatch
+    const draft: PostDraft = { destination, caption, media, orbitalIds: selectedOrbitalIds, voice: voiceNote.voice };
+    const imageToAnalyze = media?.kind === 'image' ? media : null;
+
+    showToast({
+      title: 'Posting…',
+      subtitle: destination === 'orbital' ? plural(selectedOrbitalIds.length, 'orbital') : 'Community feed',
+      variant: 'info',
+      icon: 'cloud-upload-outline',
+      duration: POSTING_TOAST_MS,
+      haptic: false,
+    });
+
+    dispatch(submitPost(draft))
+      .unwrap()
+      .then(({ created, failed }) => {
+        if (imageToAnalyze) created.forEach((c) => analyzeImage(imageToAnalyze, c.post?.id ?? c.post?._id));
+
+        if (failed.length) {
+          showToast({
+            title: 'Partly posted',
+            subtitle: `${created.length} of ${created.length + failed.length} succeeded. ${failed[0].message}`,
+            variant: 'error',
+            duration: 4000,
+          });
+          return;
+        }
+        showToast({
+          title: 'Posted',
+          subtitle: destination === 'orbital' ? `Shared to ${plural(created.length, 'orbital')}` : 'Shared to the community feed',
+          variant: 'success',
+        });
+      })
+      .catch((message: unknown) => {
+        showToast({
+          title: 'Post failed',
+          subtitle: `${typeof message === 'string' ? message : 'Something went wrong'}. Your draft was restored.`,
+          variant: 'error',
+          duration: 4000,
+        });
+      });
+
+    voiceNote.remove();
+  }, [canPost, destination, selectedOrbitalIds, caption, media, voiceNote, dispatch]);
 
   // [VOICE-NOTES] when enabling voice notes, replace the line below with:
   //   const onMicPress = voiceNote.isRecording ? voiceNote.stop : voiceNote.start;
   const onMicPress = showComingSoon;
 
-  const subtitle = DESTINATIONS.find((d) => d.value === destination)?.subtitle ?? '';
+  const baseSubtitle = DESTINATIONS.find((d) => d.value === destination)?.subtitle ?? '';
+  const subtitle =
+    destination === 'orbital' && selectedOrbitalIds.length > 0
+      ? `Posting to ${plural(selectedOrbitalIds.length, 'orbital')}`
+      : baseSubtitle;
 
   return (
     <>
       <ComposerFab onPress={() => dispatch(openComposer())} hasDraft={hasDraft} bottomOffset={bottomOffset} />
 
-      <BottomSheet visible={isOpen} onClose={requestClose} dismissible={!isPosting}>
+      <BottomSheet visible={isOpen} onClose={requestClose} dismissible>
         <ComposerHeader
           username={currentUser.username}
           profilePic={currentUser.profilePic}
@@ -123,14 +162,14 @@ export default function CreatePost({ onPostCreated, user, bottomOffset = 100 }: 
           {/* swipe anywhere in here to switch Feed ⇄ Orbital */}
           <GestureDetector gesture={gesture}>
             <View collapsable={false} style={{ gap: 12 }} onLayout={(e) => setPageWidth(e.nativeEvent.layout.width)}>
-              <DestinationTabs progress={progress} onSelect={changeDestination} disabled={isPosting} />
+              <DestinationTabs progress={progress} onSelect={changeDestination} disabled={false} />
 
               <DestinationPager
                 progress={progress}
                 orbitals={orbitals}
                 orbitalsStatus={orbitalsStatus}
-                selectedOrbitalId={selectedOrbitalId}
-                onSelectOrbital={(id) => dispatch(selectOrbital(id))}
+                selectedOrbitalIds={selectedOrbitalIds}
+                onToggleOrbital={(id) => dispatch(toggleOrbital(id))}
                 onRetryOrbitals={() => dispatch(loadOrbitals())}
               />
 
@@ -152,7 +191,7 @@ export default function CreatePost({ onPostCreated, user, bottomOffset = 100 }: 
               )}
               */}
 
-              <CaptionInput value={caption} onChange={(v) => dispatch(setCaption(v))} editable={!isPosting} />
+              <CaptionInput value={caption} onChange={(v) => dispatch(setCaption(v))} editable />
             </View>
           </GestureDetector>
         </ScrollView>
@@ -168,7 +207,7 @@ export default function CreatePost({ onPostCreated, user, bottomOffset = 100 }: 
           toastVisible={comingSoon}
           onPost={handlePost}
           canPost={canPost}
-          isPosting={isPosting}
+          isPosting={false}
         />
       </BottomSheet>
     </>
