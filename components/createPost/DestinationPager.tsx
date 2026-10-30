@@ -12,8 +12,10 @@ type Props = {
   progress: SharedValue<number>;
   orbitals: MyOrbital[] | null;
   orbitalsStatus: 'idle' | 'loading' | 'failed';
-  selectedOrbitalId: string | null;
-  onSelectOrbital: (id: string) => void;
+  selectedOrbitalIds: string[];
+  showViews?: boolean;
+  views?: number;
+  onToggleOrbital: (id: string) => void;
   onRetryOrbitals: () => void;
 };
 
@@ -34,8 +36,8 @@ export function DestinationPager({
   progress,
   orbitals,
   orbitalsStatus,
-  selectedOrbitalId,
-  onSelectOrbital,
+  selectedOrbitalIds,
+  onToggleOrbital,
   onRetryOrbitals,
 }: Props) {
   const [width, setWidth] = useState(0);
@@ -61,8 +63,8 @@ export function DestinationPager({
             <OrbitalPicker
               orbitals={orbitals}
               status={orbitalsStatus}
-              selectedId={selectedOrbitalId}
-              onSelect={onSelectOrbital}
+              selectedIds={selectedOrbitalIds}
+              onToggle={onToggleOrbital}
               onRetry={onRetryOrbitals}
             />
           </Page>

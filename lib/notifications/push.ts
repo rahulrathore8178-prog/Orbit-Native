@@ -5,8 +5,6 @@ import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
-// How a notification looks while the app is open.
-// (On older SDKs, replace shouldShowBanner/shouldShowList with shouldShowAlert: true.)
 Notifications.setNotificationHandler({
     handleNotification: async () => ({
         shouldShowBanner: true,
@@ -19,44 +17,60 @@ Notifications.setNotificationHandler({
 const projectId = () => Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
 
 async function getPushToken(askPermission: boolean): Promise<string | null> {
-    if (!Device.isDevice) return null; // emulators cannot receive pushes
+    if (!Device.isDevice) {
+        console.log('[push] 1 skipped: not a physical device');
+        return null;
+    }
 
     if (Platform.OS === 'android') {
-        // The channel must exist before the permission prompt on Android 13+.
         await Notifications.setNotificationChannelAsync('default', {
             name: 'General',
             importance: Notifications.AndroidImportance.MAX,
             vibrationPattern: [0, 250, 250, 250],
             lightColor: '#6D8BFF',
         });
+        console.log('[push] 1 channel ready');
     }
 
     let { status } = await Notifications.getPermissionsAsync();
+    console.log('[push] 2 permission before:', status);
     if (status !== 'granted' && askPermission) {
         status = (await Notifications.requestPermissionsAsync()).status;
+        console.log('[push] 2 permission after prompt:', status);
     }
-    if (status !== 'granted') return null;
+    if (status !== 'granted') {
+        console.warn('[push] 2 FAILED: permission not granted. Enable it in Settings > Apps > Orbit > Notifications');
+        return null;
+    }
 
     const id = projectId();
+    console.log('[push] 3 projectId:', id, '| app package:', Constants.expoConfig?.android?.package);
     if (!id) {
-        console.warn('[push] EAS projectId is missing');
+        console.warn('[push] 3 FAILED: EAS projectId is missing');
         return null;
     }
     try {
-        return (await Notifications.getExpoPushTokenAsync({ projectId: id })).data;
-    } catch (e) {
-        console.warn('[push] could not get token', e);
+        const token = (await Notifications.getExpoPushTokenAsync({ projectId: id })).data;
+        console.log('[push] 4 token obtained:', token);
+        return token;
+    } catch (e: any) {
+        console.warn('[push] 4 FAILED getting token:', e?.message ?? e);
         return null;
     }
 }
 
 export async function registerPushToken() {
+    console.log('[push] register start, API:', API_URL);
     const token = await getPushToken(true);
-    if (!token) return;
+    if (!token) {
+        console.warn('[push] register stopped: no token');
+        return;
+    }
     try {
-        await axios.post(`${API_URL}/api/auth/user/push-token`, { token, platform: Platform.OS }, { timeout: 30000 });
-    } catch (e) {
-        console.warn('[push] register failed', e);
+        const res = await axios.post(`${API_URL}/api/auth/user/push-token`, { token, platform: Platform.OS }, { timeout: 30000 });
+        console.log('[push] 5 saved on server:', res.status, res.data);
+    } catch (e: any) {
+        console.warn('[push] 5 FAILED saving on server:', e?.response?.status, e?.response?.data ?? e?.message);
     }
 }
 
@@ -66,5 +80,6 @@ export async function unregisterPushToken() {
         const token = await getPushToken(false);
         if (!token) return;
         await axios.delete(`${API_URL}/api/auth/user/push-token`, { data: { token }, timeout: 8000 });
+        console.log('[push] unregistered');
     } catch { /* best effort */ }
 }

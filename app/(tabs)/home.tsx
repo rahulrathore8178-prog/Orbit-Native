@@ -3,6 +3,7 @@ import { CapsuleViewer } from '@/components/capsule/CapsuleViewer';
 import CommentsSheet from '@/components/comments/CommentsSheet';
 import { FeedPager } from '@/components/feed/FeedPager';
 import { FeedTabs } from '@/components/feed/FeedTabs';
+import { FeedFooter } from '@/components/feed/FeedFooter';
 import { OrbitalFeedList } from '@/components/feed/OrbitalFeedList';
 import Postcard from '@/components/postCard/PostCard';
 import CreatePost from '@/components/createPost/CreatePost';
@@ -21,20 +22,22 @@ import {
     useVisibleId,
     VIEWABILITY_CONFIG,
 } from '@/hooks/feed/useHomeFeed';
+import { usePostViews, VIEW_COUNT_CONFIG } from '@/hooks/feed/usePostViews';
 import { useOrbitalFeed } from '@/hooks/feed/useOrbitalFeed';
 import { toPostcardProps, type PostcardProps } from '@/components/services/feed/postUtils';
-import { usePathname, useRouter } from 'expo-router';
-import { MenuIcon } from 'lucide-react-native';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useIsFocused, useRouter } from 'expo-router';
+import React, { useCallback, useRef, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import Reanimated, { useAnimatedStyle } from 'react-native-reanimated';
 import { BlurTargetView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import SideDrawer, { DrawerItemKey } from '../../components/sideDrawer/sideDrawer';
-import { getDisplayImageUrl, resolveImg } from '../../lib/utils';
 import { useDrawer } from '@/components/sideDrawer/DrawerContext';
 import { GestureDetector } from 'react-native-gesture-handler';
 import NotificationBell from '@/components/notifications/NotificationBell';
+import { getDisplayImageUrl } from '../../lib/utils';
+
+/** Floating tab bar height (without the safe-area inset). Adjust to match your bar. */
+const TAB_BAR_H = 80;
 
 /* ------------------------------ header -------------------------------- */
 
@@ -49,57 +52,51 @@ type HeaderProps = {
     };
 };
 
-const HomeHeader = ({ blurTarget, topInset, onLayoutHeight, onOpenMenu, tabs, currentUser }: HeaderProps) => {
-    console.log('currentUserProps', getDisplayImageUrl(currentUser?.profilePic));
-    return (
-        <View className="absolute inset-x-0 top-0 z-20" onLayout={(e) => onLayoutHeight(e.nativeEvent.layout.height)}>
-            <FrostedGlass blurTarget={blurTarget} intensity={80} className="rounded-b-[28px] border-b">
-                <View style={{ paddingTop: topInset }}>
-                    <View className="flex-row items-center px-4 pb-3 pt-2">
-                        {/* <Pressable onPress={onOpenMenu} hitSlop={8} accessibilityLabel="Open menu" className="w-9">
-                        <MenuIcon color="white" size={32} />
-                    </Pressable> */}
-                        <Pressable
-                            onPress={onOpenMenu}
-                            accessibilityLabel="Open profile"
-                            className="w-10 h-10 rounded-full overflow-hidden"
+const HomeHeader = ({ blurTarget, topInset, onLayoutHeight, onOpenMenu, tabs, currentUser }: HeaderProps) => (
+    <View className="absolute inset-x-0 top-0 z-20" onLayout={(e) => onLayoutHeight(e.nativeEvent.layout.height)}>
+        <FrostedGlass blurTarget={blurTarget} intensity={80} className="rounded-b-[28px] border-b">
+            <View style={{ paddingTop: topInset }}>
+                <View className="flex-row items-center px-4 pb-3 pt-2">
+                    <Pressable
+                        onPress={onOpenMenu}
+                        accessibilityLabel="Open profile"
+                        className="w-10 h-10 rounded-full overflow-hidden"
+                    >
+                        {currentUser?.profilePic ? (
+                            <Image
+                                source={{ uri: getDisplayImageUrl(currentUser.profilePic) }}
+                                className="w-full h-full"
+                                resizeMode="cover"
+                            />
+                        ) : (
+                            <View className="w-full h-full bg-gray-500" />
+                        )}
+                    </Pressable>
+
+                    <View className="flex-1 py-2">
+                        <Text
+                            className="text-center text-2xl font-bold tracking-widest text-white/90"
+                            style={{
+                                textShadowColor: 'rgba(255,255,255,0.45)',
+                                textShadowOffset: { width: 0, height: 0 },
+                                textShadowRadius: 12,
+                            }}
                         >
-                            {currentUser?.profilePic ? (
-                                <Image
-                                    source={{ uri: getDisplayImageUrl(currentUser.profilePic) }}
-                                    className="w-full h-full"
-                                    resizeMode="cover"
-                                />
-                            ) : (
-                                <View className="w-full h-full bg-gray-500" />
-                            )}
-                        </Pressable>
-
-                        <View className="flex-1 py-2">
-                            <Text
-                                className="text-center text-2xl font-bold tracking-widest text-white/90"
-                                style={{
-                                    textShadowColor: 'rgba(255,255,255,0.45)',
-                                    textShadowOffset: { width: 0, height: 0 },
-                                    textShadowRadius: 12,
-                                }}
-                            >
-                                Orbit
-                            </Text>
-                        </View>
-
-                        <View className="w-9" />
-                        <NotificationBell />
+                            Orbit
+                        </Text>
                     </View>
 
-                    <View className="items-center px-4 pb-3">
-                        <FeedTabs position={tabs.position} active={tabs.tab} onSelect={tabs.goTo} />
-                    </View>
+                    <View className="w-9" />
+                    <NotificationBell />
                 </View>
-            </FrostedGlass>
-        </View>
-    )
-}
+
+                <View className="items-center px-4 pb-3">
+                    <FeedTabs position={tabs.position} active={tabs.tab} onSelect={tabs.goTo} />
+                </View>
+            </View>
+        </FrostedGlass>
+    </View>
+);
 
 /* ------------------------------ screen -------------------------------- */
 
@@ -107,11 +104,8 @@ export default function HomeScreen() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
     const blurTarget = useRef<View | null>(null);
-    const pathname = usePathname();
-
-    useEffect(() => {
-        console.log('HOME PATH:', pathname);
-    }, []);
+    const focused = useIsFocused();
+    const tabBarInset = TAB_BAR_H + insets.bottom;
 
     // data
     const currentUser = useCurrentUser();
@@ -121,8 +115,6 @@ export default function HomeScreen() {
     const share = useShare();
 
     // ui state
-    const [drawerOpen, setDrawerOpen] = useState(false);
-    const [darkMode, setDarkMode] = useState(true);
     const [commentsPostId, setCommentsPostId] = useState<string | null>(null);
     const [viewer, setViewer] = useState<{ userId: string; origin: Rect } | null>(null);
     const [headerH, setHeaderH] = useState(insets.top + 64); // estimate until onLayout fires
@@ -132,9 +124,32 @@ export default function HomeScreen() {
     const yours = useVisibleId();
     const orbitals = useVisibleId();
 
-    // Pan right on "Your feed" opens the drawer immediately.
-    const tabs = useFeedTabs()               // no more onPanRightFromFirst
-    const { open } = useDrawer()             // use open() for your hamburger button
+    const tabs = useFeedTabs();
+    const { open } = useDrawer();
+
+    // View counting: a post counts after 1s of being fully on screen. Paused while
+    // another tab/screen/sheet is on top, so it never counts something the user can't see.
+    const overlayOpen = commentsPostId !== null || share.shareId !== null || !!viewer;
+    const yourViews = usePostViews({
+        enabled: focused && !overlayOpen && tabs.tab === 0,
+        safeTop: headerH,
+        safeBottom: tabBarInset,
+    });
+    const orbitalViews = usePostViews({
+        enabled: focused && !overlayOpen && tabs.tab === 1,
+        safeTop: headerH,
+        safeBottom: tabBarInset,
+    });
+
+    // FlatList needs these pairs to be stable, so they are created once.
+    const yourPairs = useRef([
+        { viewabilityConfig: VIEWABILITY_CONFIG, onViewableItemsChanged: yours.onViewableItemsChanged },
+        { viewabilityConfig: VIEW_COUNT_CONFIG, onViewableItemsChanged: yourViews.onViewableItemsChanged },
+    ]).current;
+    const orbitalPairs = useRef([
+        { viewabilityConfig: VIEWABILITY_CONFIG, onViewableItemsChanged: orbitals.onViewableItemsChanged },
+        { viewabilityConfig: VIEW_COUNT_CONFIG, onViewableItemsChanged: orbitalViews.onViewableItemsChanged },
+    ]).current;
 
     // tray
     const TRAY_H = CAPSULE.TRAY_ITEM_H + 24;
@@ -148,46 +163,36 @@ export default function HomeScreen() {
         profilePic: getDisplayImageUrl(currentUser?.profilePic),
     };
 
-    const handleSelect = (key: DrawerItemKey) => {
-        setDrawerOpen(false);
-        if (key === 'orbitals') {
-            // wait for the drawer's 240ms slide-out so the push doesn't collide with the Modal
-            setTimeout(() => router.push('/orbital'), 260);
-        } else if (key === 'discover') {
-            setTimeout(() => router.push(`/discover/discover`), 260);
-        } else if (key === 'settings') {
-            setTimeout(() => router.push(`/profile/settings`), 260);
-        } else if (key === 'profile') {
-            setTimeout(() => router.push(`/profile`), 260);
-        } else {
-            setDrawerOpen(false);
-        }
-    };
-
     const keyExtractor = useCallback((post: PostcardProps) => post.id, []);
 
+    const yourSetNode = yourViews.setNode;
     const renderItem = useCallback(
         ({ item }: { item: PostcardProps }) => (
-            <Postcard
-                {...item}
-                isVisible={tabs.tab === 0}
-                onPressComments={() => setCommentsPostId(item.id)}
-                onClickShare={share.open}
-            />
+            <View ref={(n) => yourSetNode(item.id, n)} collapsable={false}>
+                <Postcard
+                    {...item}
+                    isVisible={tabs.tab === 0}
+                    onPressComments={() => setCommentsPostId(item.id)}
+                    onClickShare={share.open}
+                />
+            </View>
         ),
-        [tabs.tab, share.open],
+        [tabs.tab, share.open, yourSetNode],
     );
 
+    const orbitalSetNode = orbitalViews.setNode;
     const renderOrbitalItem = useCallback(
         ({ item }: { item: PostcardProps }) => (
-            <Postcard
-                {...item}
-                isVisible={tabs.tab === 1}
-                onPressComments={() => setCommentsPostId(item.id)}
-                onClickShare={share.open}
-            />
+            <View ref={(n) => orbitalSetNode(item.id, n)} collapsable={false}>
+                <Postcard
+                    {...item}
+                    isVisible={tabs.tab === 1}
+                    onPressComments={() => setCommentsPostId(item.id)}
+                    onClickShare={share.open}
+                />
+            </View>
         ),
-        [tabs.tab, share.open],
+        [tabs.tab, share.open, orbitalSetNode],
     );
 
     return (
@@ -202,8 +207,7 @@ export default function HomeScreen() {
                                 data={feed.posts}
                                 keyExtractor={keyExtractor}
                                 renderItem={renderItem}
-                                viewabilityConfig={VIEWABILITY_CONFIG}
-                                onViewableItemsChanged={yours.onViewableItemsChanged}
+                                viewabilityConfigCallbackPairs={yourPairs}
                                 extraData={`${yours.visibleId}-${tabs.tab}`}
                                 showsVerticalScrollIndicator={false}
                                 refreshing={feed.refreshing}
@@ -211,9 +215,17 @@ export default function HomeScreen() {
                                 progressViewOffset={feedTop}
                                 onScroll={onScroll}
                                 scrollEventThrottle={16}
-                                contentContainerStyle={{ paddingTop: feedTop + 12, paddingBottom: 12 }}
+                                contentContainerStyle={{ paddingTop: feedTop + 12 }}
                                 ListEmptyComponent={
                                     feed.loading ? null : <Text className="mt-8 text-center text-white/60">No posts yet.</Text>
+                                }
+                                ListFooterComponent={
+                                    <FeedFooter
+                                        loading={feed.loadingMore}
+                                        hasMore={feed.hasMore}
+                                        hasItems={feed.posts.length > 0}
+                                        bottomInset={tabBarInset}
+                                    />
                                 }
                                 onEndReached={() => {
                                     if (!feed.loading && !feed.loadingMore && feed.hasMore) feed.loadMore();
@@ -226,10 +238,10 @@ export default function HomeScreen() {
                                 feed={orbitalFeed}
                                 renderItem={renderOrbitalItem}
                                 topInset={headerH}
+                                bottomInset={tabBarInset}
                                 onBrowse={() => router.push('/orbital')}
                                 listProps={{
-                                    viewabilityConfig: VIEWABILITY_CONFIG,
-                                    onViewableItemsChanged: orbitals.onViewableItemsChanged,
+                                    viewabilityConfigCallbackPairs: orbitalPairs,
                                     extraData: `${orbitals.visibleId}-${tabs.tab}`,
                                     showsVerticalScrollIndicator: false,
                                     onScroll,
@@ -307,16 +319,7 @@ export default function HomeScreen() {
                 onCommentAdded={capsules.bumpComments}
             />
 
-            <SideDrawer
-                visible={drawerOpen}
-                onClose={() => setDrawerOpen(false)}
-                user={currentUser}
-                onSelect={handleSelect}
-                darkMode={darkMode}
-                onToggleDarkMode={setDarkMode}
-            />
-
             <OrbitLoader visible={feed.loading} />
         </View>
     );
-};
+}

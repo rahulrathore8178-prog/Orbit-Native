@@ -70,6 +70,7 @@ export const profileApi = {
 
     async getPosts(id: string): Promise<ProfilePost[]> {
         const data = await request({ url: ENDPOINTS.userPosts(id) });
+        console.log('RAW post keys', Object.keys(data.posts?.[0] ?? {}), 'views:', data.posts?.[0]?.views);
         return (data.posts ?? []).map(toProfilePost);
     },
 

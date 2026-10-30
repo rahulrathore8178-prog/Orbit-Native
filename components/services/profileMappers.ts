@@ -52,6 +52,7 @@ export const toProfilePost = (raw: any): ProfilePost => ({
     updatedAt: raw?.updatedAt ?? raw?.createdAt ?? new Date().toISOString(),
     likesCount: raw?.likesCount ?? raw?.likes?.length ?? 0,
     commentsCount: raw?.commentsCount ?? raw?.comments?.length ?? 0,
+    views: Number(raw?.views ?? 0),
     // who liked it, so useProfile can work out "did I like this"
     likedBy: Array.isArray(raw?.likes) ? raw.likes.map(idOf) : undefined,
     isLikedByCurrentUser: raw?.isLikedByCurrentUser ?? raw?.isLiked,

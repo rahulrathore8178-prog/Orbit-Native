@@ -7,6 +7,7 @@ import { AddFriendButton } from "./AddFriendButton";
 import { CARD_HEIGHT } from "./constants";
 import { GlassCard } from "./GlassCard";
 import { NearbyUser } from "./types";
+import { ChevronRight } from "lucide-react-native";
 
 type Props = {
   user: NearbyUser;
@@ -68,7 +69,8 @@ function NearbyUserCardBase({ user, index, onOpenProfile, onAddFriend }: Props) 
               </View>
             </View>
 
-            <AddFriendButton status={user.friendStatus} onPress={onAction} />
+            {/* <AddFriendButton status={user.friendStatus} onPress={onAction} /> */}
+            <ChevronRight size={20} color="#8a8a8a" />
           </Pressable>
         </GlassCard>
       </Animated.View>

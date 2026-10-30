@@ -1,4 +1,5 @@
 import { Check } from 'lucide-react-native';
+import { useMemo } from 'react';
 import { ActivityIndicator, Image, StyleSheet, Text, View } from 'react-native';
 import { resolveUrl, type MyOrbital } from '../../constants/createPost/external';
 import { theme } from '../../constants/createPost/theme';
@@ -8,15 +9,20 @@ import { NeoButton } from '../ui/createPost/NeoButton';
 type Props = {
   orbitals: MyOrbital[] | null;
   status: 'idle' | 'loading' | 'failed';
-  selectedId: string | null;
-  onSelect: (id: string) => void;
+  selectedIds: string[];
+  onToggle: (id: string) => void;
   onRetry: () => void;
 };
 
 function OrbitalChip({ orbital, selected, onPress }: { orbital: MyOrbital; selected: boolean; onPress: () => void }) {
   const img = resolveUrl(orbital.image);
   return (
-    <NeoButton onPress={onPress} selected={selected} radius={16} label={`Orbital ${orbital.name}`}>
+    <NeoButton
+      onPress={onPress}
+      selected={selected}
+      radius={16}
+      label={`${selected ? 'Unselect' : 'Select'} orbital ${orbital.name}`}
+    >
       <View style={styles.chip}>
         {img ? (
           <Image source={{ uri: img }} style={styles.chipImg} />
@@ -34,11 +40,16 @@ function OrbitalChip({ orbital, selected, onPress }: { orbital: MyOrbital; selec
   );
 }
 
-/** Wrapping chips (no nested horizontal scroll), so swiping anywhere switches tabs cleanly. */
-export function OrbitalPicker({ orbitals, status, selectedId, onSelect, onRetry }: Props) {
+/** Wrapping multi-select chips (no nested horizontal scroll), so swiping anywhere switches tabs cleanly. */
+export function OrbitalPicker({ orbitals, status, selectedIds = [], onToggle, onRetry }: Props) {
+  const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
+
   return (
     <GlassCard radius={22} style={styles.card}>
-      <Text style={styles.heading}>Post to orbital</Text>
+      <View style={styles.headRow}>
+        <Text style={styles.heading}>Post to orbitals</Text>
+        {selectedIds.length > 0 && <Text style={styles.count}>{selectedIds.length} selected</Text>}
+      </View>
 
       {status === 'loading' && !orbitals ? (
         <ActivityIndicator color={theme.colors.accent} style={{ paddingVertical: 10 }} />
@@ -52,11 +63,14 @@ export function OrbitalPicker({ orbitals, status, selectedId, onSelect, onRetry 
       ) : !orbitals?.length ? (
         <Text style={styles.empty}>You don&apos;t have any orbitals to post to yet.</Text>
       ) : (
-        <View style={styles.wrap}>
-          {orbitals.map((o) => (
-            <OrbitalChip key={o._id} orbital={o} selected={o._id === selectedId} onPress={() => onSelect(o._id)} />
-          ))}
-        </View>
+        <>
+          <View style={styles.wrap}>
+            {orbitals.map((o) => (
+              <OrbitalChip key={o._id} orbital={o} selected={selected.has(o._id)} onPress={() => onToggle(o._id)} />
+            ))}
+          </View>
+          <Text style={styles.hint}>Pick one or more. Tap again to unselect.</Text>
+        </>
       )}
     </GlassCard>
   );
@@ -64,15 +78,17 @@ export function OrbitalPicker({ orbitals, status, selectedId, onSelect, onRetry 
 
 const styles = StyleSheet.create({
   card: { flexGrow: 1, alignSelf: 'stretch', paddingVertical: 14, paddingHorizontal: 14 },
+  headRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
   heading: {
     color: theme.colors.muted,
     fontSize: 11.5,
     fontWeight: '800',
     letterSpacing: 1,
     textTransform: 'uppercase',
-    marginBottom: 12,
   },
+  count: { color: theme.colors.accent, fontSize: 12, fontWeight: '800' },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  hint: { color: theme.colors.textDim, fontSize: 12, marginTop: 12 },
   chip: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 9 },
   chipImg: { width: 22, height: 22, borderRadius: 11 },
   chipFallback: { backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' },

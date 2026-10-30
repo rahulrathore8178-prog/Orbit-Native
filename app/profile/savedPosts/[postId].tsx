@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef } from 'react';
-import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Pressable, Text, View } from 'react-native';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -7,15 +7,14 @@ import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
 import type { AppDispatch, RootState } from '@/redux/store';
-import {
-    fetchSavedPosts,
-    selectSavedById,
-    selectSavedStatus,
-    unsavePost,
-} from '@/redux/slice/savedPostsSlice';
+import { fetchSavedPosts, selectSavedById, selectSavedStatus, unsavePost } from '@/redux/slice/savedPostsSlice';
 import { useSharedPost } from '@/components/services/chat/sharedPost';
 import type { PostcardProps } from '@/components/services/feed/postUtils';
-import Postcard from '@/components/postCard/PostCard'; // ← keep the import path you already use
+import Postcard from '@/components/postCard/PostCard';
+import CommentsSheet from '@/components/comments/CommentsSheet';
+import ShareModal from '@/components/posts/ShareModal';
+import OrbitLoader from '@/components/ui/OrbitLoader';
+import { useCurrentUser, useShare } from '@/hooks/feed/useHomeFeed';
 import { AmbientBackground, GlassHeader, HEADER_H, StateView } from '@/components/savedPosts/SavedUI';
 
 const timeAgo = (iso: string) => {
@@ -26,29 +25,27 @@ const timeAgo = (iso: string) => {
     return new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 };
 
-/**
- * Single-post screen. Opened from the saved grid (post comes from redux)
- * and from shared posts in chat (post is fetched by id when it isn't saved).
- */
 export default function PostDetailScreen() {
-    const { postId } = useLocalSearchParams<{ postId: string }>();
+    const { postId, from, comments } = useLocalSearchParams<{ postId: string; from?: string; comments?: string }>();
     const dispatch = useDispatch<AppDispatch>();
     const insets = useSafeAreaInsets();
 
     const saved = useSelector(selectSavedById(postId));
     const status = useSelector(selectSavedStatus);
-    const uid = useSelector((s: RootState) => (s as any).profile?.userId ?? null) as string | null; // ← adjust if needed
+    const uid = useSelector((s: RootState) => (s as any).profile?.userId ?? null) as string | null;
     const hadSaved = useRef(false);
 
-    // Only hits the network when the post isn't already in the saved store.
+    const currentUser = useCurrentUser();
+    const share = useShare();
+    const [commentsOpen, setCommentsOpen] = useState(comments === '1');
+    const [extraComments, setExtraComments] = useState(0);
+
     const { post: shared, failed } = useSharedPost(postId, undefined, !saved);
 
-    // Know which posts are saved (for the chip + bookmark) even when opened from chat.
     useEffect(() => {
         if (status === 'idle') dispatch(fetchSavedPosts());
     }, [status, dispatch]);
 
-    // If a saved post gets unsaved while viewing it, leave smoothly.
     useEffect(() => {
         if (saved) hadSaved.current = true;
         else if (hadSaved.current) router.back();
@@ -70,8 +67,7 @@ export default function PostDetailScreen() {
                     mediaHeight: shared.mediaHeight,
                     likesCount: shared.likesCount ?? 0,
                     commentsCount: shared.commentsCount ?? 0,
-                    isLikedByCurrentUser:
-                        shared.isLikedByCurrentUser ?? (!!uid && !!shared.likedBy?.includes(uid)),
+                    isLikedByCurrentUser: shared.isLikedByCurrentUser ?? (!!uid && !!shared.likedBy?.includes(uid)),
                     isSaved: false,
                     orbital: shared.orbital,
                 } as unknown as PostcardProps)
@@ -79,16 +75,26 @@ export default function PostDetailScreen() {
         [shared, uid],
     );
 
-    const card = (saved?.card as PostcardProps | undefined) ?? sharedCard;
+    const baseCard = (saved?.card as PostcardProps | undefined) ?? sharedCard;
+    const card = baseCard ? { ...baseCard, commentsCount: Math.max(0, baseCard.commentsCount + extraComments) } : null;
 
     const unsave = () => {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         dispatch(unsavePost(postId));
     };
 
+    const currentUserProps = {
+        id: currentUser?.id,
+        username: currentUser?.username,
+        profilePic: currentUser?.profilePic,
+    };
+
     return (
         <View className="flex-1 bg-[#07070A]">
-            <Stack.Screen options={{ headerShown: false, animation: 'fade_from_bottom' }} />
+            {/* from a notification the expanding card is already covering the screen: plain fade */}
+            <Stack.Screen
+                options={{ headerShown: false, animation: from === 'notif' ? 'fade' : 'fade_from_bottom' }}
+            />
             <AmbientBackground />
             <GlassHeader
                 title="Post"
@@ -118,15 +124,18 @@ export default function PostDetailScreen() {
                         <Animated.View entering={FadeIn.duration(300)} className="mb-3 px-4">
                             <View className="self-start flex-row items-center rounded-full border border-white/10 bg-white/[0.05] px-3 py-1.5">
                                 <Ionicons name="bookmark" size={11} color="rgba(255,255,255,0.7)" />
-                                <Text className="ml-1.5 text-[12px] font-medium text-white/60">
-                                    Saved {timeAgo(saved.savedAt)}
-                                </Text>
+                                <Text className="ml-1.5 text-[12px] font-medium text-white/60">Saved {timeAgo(saved.savedAt)}</Text>
                             </View>
                         </Animated.View>
                     )}
 
                     <Animated.View entering={FadeInDown.delay(60).springify().damping(20)}>
-                        <Postcard {...card} isVisible />
+                        <Postcard
+                            {...card}
+                            isVisible
+                            onPressComments={() => setCommentsOpen(true)}
+                            onClickShare={share.open}
+                        />
                     </Animated.View>
                 </Animated.ScrollView>
             ) : failed ? (
@@ -137,11 +146,24 @@ export default function PostDetailScreen() {
                         message="It may have been deleted, or you may not have access to it."
                     />
                 </View>
-            ) : (
-                <View className="flex-1 items-center justify-center">
-                    <ActivityIndicator color="#fff" />
-                </View>
-            )}
+            ) : null}
+
+            <CommentsSheet
+                visible={commentsOpen}
+                postId={postId}
+                onClose={() => setCommentsOpen(false)}
+                currentUser={currentUserProps}
+                onCountChange={(_id: string, delta: number) => setExtraComments((n) => n + delta)}
+            />
+            <ShareModal
+                visible={share.shareId !== null}
+                postId={share.shareId}
+                friends={share.friends}
+                orbitals={share.orbitals}
+                onClose={share.close}
+            />
+
+            <OrbitLoader visible={!card && !failed} />
         </View>
     );
 }

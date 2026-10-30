@@ -1,8 +1,8 @@
+import { TARGETS_BY_DESTINATION } from '@/constants/createPost/constants';
 import axios from 'axios';
 import { Platform } from 'react-native';
 import { ANALYSIS_PROMPT, API_URL, getAuthHeaders } from '../../../constants/createPost/external';
 import type { Destination, PickedMedia, PostTarget, SubmitResult, Voice } from '../../../constants/createPost/types';
-import { TARGETS_BY_DESTINATION } from '@/constants/createPost/constants';
 
 /* ---------- helpers ---------- */
 const AUDIO_EXT = Platform.OS === 'web' ? 'webm' : 'm4a';
@@ -40,23 +40,35 @@ type SendArgs = {
   caption: string;
   media: PickedMedia | null;
   voice: Voice | null;
-  orbitalId: string | null;
+  orbitalIds: string[];
 };
 
-/** Posts to every target of the chosen destination. Throws only if ALL of them failed. */
-export async function sendPost({ destination, caption, media, voice, orbitalId }: SendArgs): Promise<SubmitResult> {
-  const targets: PostTarget[] = TARGETS_BY_DESTINATION[destination];
-  const endpoints: Record<PostTarget, string> = {
-    feed: `${API_URL}/api/community/posts`,
-    orbital: `${API_URL}/api/orbital/${orbitalId}/posts`,
-  };
+type Job = { target: PostTarget; url: string };
+
+/** One job per feed target, plus one per selected orbital. */
+function buildJobs(destination: Destination, orbitalIds: string[]): Job[] {
+  const uniqueOrbitals = [...new Set(orbitalIds)];
+  return TARGETS_BY_DESTINATION[destination].flatMap((target): Job[] =>
+    target === 'feed'
+      ? [{ target, url: `${API_URL}/api/community/posts` }]
+      : uniqueOrbitals.map((id) => ({ target, url: `${API_URL}/api/orbital/${id}/posts` })),
+  );
+}
+
+/** Posts to every selected destination in parallel. Throws only if ALL of them failed. */
+export async function sendPost({ destination, caption, media, voice, orbitalIds }: SendArgs): Promise<SubmitResult> {
+  const jobs = buildJobs(destination, orbitalIds);
+  if (!jobs.length) throw new Error('Select at least one orbital');
+
   const headers = { ...(await getAuthHeaders()) };
 
   const results = await Promise.allSettled(
-    targets.map(async (target) => {
-      const { data } = await axios.post(endpoints[target], await buildForm(caption, media, voice), {
+    jobs.map(async ({ target, url }) => {
+      const { data } = await axios.post(url, await buildForm(caption, media, voice), {
         withCredentials: true,
         headers,
+        maxBodyLength: Infinity,
+        maxContentLength: Infinity,
       });
       return { target, post: data?.post };
     }),
@@ -64,7 +76,7 @@ export async function sendPost({ destination, caption, media, voice, orbitalId }
 
   const created = results.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []));
   const failed = results.flatMap((r, i) =>
-    r.status === 'rejected' ? [{ target: targets[i], message: getErrorMessage(r.reason, 'Post failed') }] : [],
+    r.status === 'rejected' ? [{ target: jobs[i].target, message: getErrorMessage(r.reason, 'Post failed') }] : [],
   );
 
   if (!created.length) throw new Error(failed[0]?.message ?? 'Post failed');

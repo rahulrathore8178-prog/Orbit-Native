@@ -1,8 +1,8 @@
-import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, RefreshControl, Text, View } from 'react-native';
 import { Stack, router, useFocusEffect, useIsFocused } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { Bell, CheckCheck, Heart, MessageCircle, UserPlus } from 'lucide-react-native';
+import { Bell, CheckCheck, ChevronRight, Heart, MessageCircle, UserPlus } from 'lucide-react-native';
 import Animated, {
     Easing,
     FadeInDown,
@@ -31,6 +31,9 @@ import {
 import type { AppNotification } from '@/components/services/notifications/notificationsApi';
 import OrbitBackdrop from '@/components/ui/OrbitBackdrop';
 import { GlassHeader, HEADER_H, StateView } from '@/components/savedPosts/SavedUI';
+import { useOpenProfile } from '@/hooks/useOpenProfile';
+import { NotificationTarget, resolveNotificationTarget } from '@/components/services/notifications/NotificationTarget';
+import { expandThen, Rect } from '@/components/notification/NotificationExpand';
 
 /* ───────────── helpers ───────────── */
 const timeAgo = (value: string) => {
@@ -66,13 +69,16 @@ type Row =
     | { kind: 'item'; key: string; item: AppNotification; index: number };
 
 /* ───────────── row ───────────── */
-const NotificationRow = memo(function NotificationRow({ item, index }: { item: AppNotification; index: number }) {
+const NotificationRow = memo(function NotificationRow({
+    item, index, onOpen,
+}: { item: AppNotification; index: number; onOpen: (t: NotificationTarget, rect: Rect) => void }) {
     const dispatch = useAppDispatch();
     const read = useSharedValue(item.isRead ? 1 : 0);
     const scale = useSharedValue(1);
+    const boxRef = useRef<View>(null);
     const Icon = iconFor(item);
+    const target = useMemo(() => resolveNotificationTarget(item), [item]);
 
-    // unread -> read fades smoothly instead of snapping
     useEffect(() => {
         read.value = withTiming(item.isRead ? 1 : 0, { duration: 280 });
     }, [item.isRead, read]);
@@ -88,39 +94,46 @@ const NotificationRow = memo(function NotificationRow({ item, index }: { item: A
     }));
 
     const press = () => {
-        if (item.isRead) return;
-        Haptics.selectionAsync();
-        dispatch(markRead(item._id));
+        if (!item.isRead) dispatch(markRead(item._id)); // mark read always works
+        if (!target) {
+            if (!item.isRead) Haptics.selectionAsync();
+            return;
+        }
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        boxRef.current?.measureInWindow((x, y, w, h) => onOpen(target, { x, y, w, h }));
     };
 
     return (
-        <Animated.View
-            entering={index < 10 ? FadeInDown.delay(index * 40).springify().damping(20) : undefined}
-            style={card}
-            className="mx-4 mb-2 overflow-hidden rounded-2xl border"
-        >
-            <Pressable
-                onPress={press}
-                onPressIn={() => (scale.value = withSpring(0.98, { damping: 18, stiffness: 320 }))}
-                onPressOut={() => (scale.value = withSpring(1, { damping: 18, stiffness: 320 }))}
-                accessibilityRole="button"
-                accessibilityLabel={`${item.title}${item.isRead ? '' : ', unread'}`}
-                className="flex-row items-center px-4 py-3.5"
+        <View ref={boxRef} collapsable={false} className="mx-4 mb-2">
+            <Animated.View
+                entering={index < 10 ? FadeInDown.delay(index * 40).springify().damping(20) : undefined}
+                style={card}
+                className="overflow-hidden rounded-2xl border"
             >
-                <View className="h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.06]">
-                    <Icon size={18} color="rgba(255,255,255,0.85)" />
-                </View>
-                <View className="ml-3 min-w-0 flex-1">
-                    <Text className="text-[14px] font-semibold text-white">{item.title}</Text>
-                    {!!item.detail && <Text className="mt-0.5 text-[13px] leading-[18px] text-white/50">{item.detail}</Text>}
-                    <Text className="mt-1 text-[11px] text-white/35">{timeAgo(item.createdAt)}</Text>
-                </View>
-                <Animated.View
-                    style={[dot, { shadowColor: '#fb7185', shadowOpacity: 0.8, shadowRadius: 6, shadowOffset: { width: 0, height: 0 } }]}
-                    className="ml-3 h-2.5 w-2.5 rounded-full bg-rose-400"
-                />
-            </Pressable>
-        </Animated.View>
+                <Pressable
+                    onPress={press}
+                    onPressIn={() => (scale.value = withSpring(0.98, { damping: 18, stiffness: 320 }))}
+                    onPressOut={() => (scale.value = withSpring(1, { damping: 18, stiffness: 320 }))}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${item.title}${item.isRead ? '' : ', unread'}`}
+                    className="flex-row items-center px-4 py-3.5"
+                >
+                    <View className="h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.06]">
+                        <Icon size={18} color="rgba(255,255,255,0.85)" />
+                    </View>
+                    <View className="ml-3 min-w-0 flex-1">
+                        <Text className="text-[14px] font-semibold text-white">{item.title}</Text>
+                        {!!item.detail && <Text className="mt-0.5 text-[13px] leading-[18px] text-white/50">{item.detail}</Text>}
+                        <Text className="mt-1 text-[11px] text-white/35">{timeAgo(item.createdAt)}</Text>
+                    </View>
+                    <Animated.View
+                        style={[dot, { shadowColor: '#fb7185', shadowOpacity: 0.8, shadowRadius: 6, shadowOffset: { width: 0, height: 0 } }]}
+                        className="ml-3 h-2.5 w-2.5 rounded-full bg-rose-400"
+                    />
+                    {target && <ChevronRight size={16} color="rgba(255,255,255,0.3)" style={{ marginLeft: 6 }} />}
+                </Pressable>
+            </Animated.View>
+        </View>
     );
 });
 
@@ -197,6 +210,14 @@ export default function NotificationsScreen() {
         return out;
     }, [items]);
 
+    const openProfile = useOpenProfile();
+
+    const onOpen = useCallback(
+        (t: NotificationTarget, rect: Rect) =>
+            expandThen(rect, () => ('profile' in t ? openProfile(t.profile) : router.push(t.href as any))),
+        [openProfile],
+    );
+
     const renderItem = useCallback(
         ({ item: row }: { item: Row }) =>
             row.kind === 'header' ? (
@@ -204,9 +225,9 @@ export default function NotificationsScreen() {
                     {row.label}
                 </Text>
             ) : (
-                <NotificationRow item={row.item} index={row.index} />
+                <NotificationRow item={row.item} index={row.index} onOpen={onOpen} />
             ),
-        [],
+        [onOpen],
     );
 
     const loading = items.length === 0 && (status === 'idle' || status === 'loading');

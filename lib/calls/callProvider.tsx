@@ -10,7 +10,7 @@ import React, {
     useRef,
     useState,
 } from 'react';
-import { AppState, PermissionsAndroid, Platform, Vibration } from 'react-native';
+import { AppState, DeviceEventEmitter, PermissionsAndroid, Platform, Vibration } from 'react-native';
 import InCallManager from 'react-native-incall-manager';
 import {
     MediaStream,
@@ -26,15 +26,16 @@ import { CallPeer, CallState, CallType, IDLE_CALL } from './types';
  * HOW IT WORKS
  *  - REST  (/api/calls)   : state changes (start / accept / reject / end)
  *  - WebSocket            : realtime events from the server + the WebRTC handshake
- *                           (call-incoming, call-accepted, call-ended, call-offer/answer/ice, call-meta)
  *  - WebRTC               : the actual audio/video, peer to peer (TURN relay if needed)
  *
- *  The CALLER always creates the offer, the CALLEE always answers. Both sides negotiate an audio
- *  AND a video m-line up front, so "switch to video" is just replaceTrack(): no mid-call
- *  renegotiation, so no glare and no delay.
+ *  The CALLER creates the offer (with a pre-negotiated audio + video m-line), the CALLEE answers
+ *  and adopts the video transceiver from the offer. "Switch to video" is just replaceTrack().
  */
 
 type Props = { apiUrl: string; userId?: string | null; children: React.ReactNode };
+
+export type AudioRoute = 'EARPIECE' | 'SPEAKER_PHONE' | 'WIRED_HEADSET' | 'BLUETOOTH';
+const DEFAULT_ROUTES: AudioRoute[] = ['EARPIECE', 'SPEAKER_PHONE'];
 
 type CallContextValue = {
     state: CallState;
@@ -47,6 +48,9 @@ type CallContextValue = {
     toggleMute: () => void;
     toggleSpeaker: () => void;
     toggleCamera: () => Promise<void>;
+    audioDevices: AudioRoute[];
+    audioRoute: AudioRoute;
+    setAudioRoute: (route: AudioRoute) => Promise<void>;
 };
 
 type RtpSender = { replaceTrack: (track: any) => Promise<void> };
@@ -134,6 +138,53 @@ export function CallProvider({ apiUrl, userId, children }: Props) {
         setState(stateRef.current);
     }, []);
 
+    /* ---------------- audio routing (speaker / earpiece / wired / bluetooth) ---------------- */
+
+    const [audio, setAudio] = useState<{ devices: AudioRoute[]; selected: AudioRoute }>({
+        devices: DEFAULT_ROUTES,
+        selected: 'EARPIECE',
+    });
+    const audioRef = useRef(audio);
+    audioRef.current = audio;
+
+    const hasHeadset = useCallback(
+        () => audioRef.current.selected === 'BLUETOOTH' || audioRef.current.selected === 'WIRED_HEADSET',
+        []
+    );
+
+    const setAudioRoute = useCallback(
+        async (route: AudioRoute) => {
+            const m = InCallManager as any;
+            try {
+                if (typeof m.chooseAudioRoute === 'function') await m.chooseAudioRoute(route);
+                else m.setForceSpeakerphoneOn(route === 'SPEAKER_PHONE' ? true : null);
+            } catch (e) {
+                console.log('Audio route failed:', (e as any)?.message ?? e);
+            }
+            setAudio((a) => ({ ...a, selected: route }));
+            if (stateRef.current.phase !== 'idle') update({ isSpeaker: route === 'SPEAKER_PHONE' });
+            Haptics.selectionAsync();
+        },
+        [update]
+    );
+
+    // device list pushed by the native module (plug / unplug / bluetooth connect)
+    useEffect(() => {
+        const sub = DeviceEventEmitter.addListener('onAudioDeviceChanged', (e: any) => {
+            let list: AudioRoute[] = [];
+            try {
+                const raw = e?.availableAudioDeviceList;
+                list = typeof raw === 'string' ? JSON.parse(raw) : raw ?? [];
+            } catch {
+                /* ignore */
+            }
+            const selected = (e?.selectedAudioDevice || 'EARPIECE') as AudioRoute;
+            setAudio({ devices: list.length ? list : DEFAULT_ROUTES, selected });
+            if (stateRef.current.phase !== 'idle') update({ isSpeaker: selected === 'SPEAKER_PHONE' });
+        });
+        return () => sub.remove();
+    }, [update]);
+
     /* ---------------- REST + signaling helpers ---------------- */
 
     const post = useCallback(async (path: string, body: object = {}) => {
@@ -192,6 +243,7 @@ export function CallProvider({ apiUrl, userId, children }: Props) {
         } catch {
             /* native module not ready */
         }
+        setAudio({ devices: DEFAULT_ROUTES, selected: 'EARPIECE' });
     }, [clearTimers]);
 
     /** Go straight back to idle with no summary screen (e.g. answered on another device). */
@@ -253,6 +305,10 @@ export function CallProvider({ apiUrl, userId, children }: Props) {
         if (Platform.OS === 'android') {
             const r = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
             if (r !== PermissionsAndroid.RESULTS.GRANTED) throw new Error('MIC_DENIED');
+            // Android 12+: needed to route call audio to bluetooth headsets / earbuds
+            if (Number(Platform.Version) >= 31) {
+                await PermissionsAndroid.request('android.permission.BLUETOOTH_CONNECT' as any).catch(() => null);
+            }
         }
         const stream = (await mediaDevices.getUserMedia({ audio: true, video: false })) as MediaStream;
         micStreamRef.current = stream;
@@ -277,17 +333,23 @@ export function CallProvider({ apiUrl, userId, children }: Props) {
             }
             camStreamRef.current = cam;
             await sender.replaceTrack(cam.getVideoTracks()[0]);
-            try {
-                InCallManager.setForceSpeakerphoneOn(true);
-            } catch {
-                /* ignore */
+
+            // Only go to speaker if no headset is connected (never steal audio from earbuds),
+            // and only touch routing when it actually changes -> no audio blip.
+            const speaker = stateRef.current.isSpeaker || !hasHeadset();
+            if (speaker && !stateRef.current.isSpeaker) {
+                try {
+                    InCallManager.setForceSpeakerphoneOn(true);
+                } catch {
+                    /* ignore */
+                }
             }
-            update({ isCameraOn: true, localVideoURL: cam.toURL(), isSpeaker: true });
+            update({ isCameraOn: true, localVideoURL: cam.toURL(), isSpeaker: speaker });
             sendSignal('call-meta', { video: true });
         } catch (e) {
             console.log('Camera could not start:', (e as any)?.message ?? e);
         }
-    }, [sendSignal, update]);
+    }, [hasHeadset, sendSignal, update]);
 
     const disableCamera = useCallback(async () => {
         try {
@@ -330,18 +392,15 @@ export function CallProvider({ apiUrl, userId, children }: Props) {
                 failTimerRef.current = null;
                 restartedRef.current = false;
                 if (cur.phase === 'connecting') {
+                    const speaker = cur.callType === 'video' && !hasHeadset();
                     try {
                         InCallManager.stopRingback();
-                        InCallManager.setForceSpeakerphoneOn(cur.callType === 'video');
+                        // null = default routing, which lets wired / bluetooth headsets take over
+                        InCallManager.setForceSpeakerphoneOn(speaker ? true : (null as any));
                     } catch {
                         /* ignore */
                     }
-                    update({
-                        phase: 'active',
-                        connectedAt: Date.now(),
-                        networkWeak: false,
-                        isSpeaker: cur.callType === 'video',
-                    });
+                    update({ phase: 'active', connectedAt: Date.now(), networkWeak: false, isSpeaker: speaker });
                     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                     if (cur.callType === 'video') enableCamera();
                 } else if (cur.networkWeak) {
@@ -363,7 +422,7 @@ export function CallProvider({ apiUrl, userId, children }: Props) {
                 if (s === 'failed') requestIceRestart();
             }
         },
-        [enableCamera, hangup, requestIceRestart, update]
+        [enableCamera, hangup, hasHeadset, requestIceRestart, update]
     );
 
     const createPeer = useCallback(() => {
@@ -379,9 +438,14 @@ export function CallProvider({ apiUrl, userId, children }: Props) {
         const mic = micStreamRef.current;
         mic?.getTracks().forEach((t) => pc.addTrack(t, mic));
 
-        // Pre-negotiate a video m-line (no track yet). Turning the camera on later is replaceTrack().
-        const videoTransceiver = (pc as any).addTransceiver('video', { direction: 'sendrecv' });
-        videoSenderRef.current = videoTransceiver.sender as RtpSender;
+        // CALLER only: pre-negotiate a video m-line (no track yet). Turning the camera on later is
+        // replaceTrack(). The CALLEE must NOT add its own transceiver: it adopts the one from the
+        // offer in handleOffer, otherwise its video is sent on an unmatched m-line and the caller
+        // never receives it.
+        if (stateRef.current.direction === 'outgoing') {
+            const videoTransceiver = (pc as any).addTransceiver('video', { direction: 'sendrecv' });
+            videoSenderRef.current = videoTransceiver.sender as RtpSender;
+        }
 
         (pc as any).addEventListener('icecandidate', (e: any) => {
             const c = e.candidate;
@@ -417,6 +481,23 @@ export function CallProvider({ apiUrl, userId, children }: Props) {
             if (!pc) return;
             try {
                 await pc.setRemoteDescription(new RTCSessionDescription(desc));
+
+                // CALLEE: adopt the video transceiver created from the caller's offer and make it
+                // send as well, so the caller can see our camera.
+                if (!videoSenderRef.current) {
+                    const vt = (pc as any)
+                        .getTransceivers?.()
+                        .find((t: any) => t.receiver?.track?.kind === 'video');
+                    if (vt) {
+                        try {
+                            vt.direction = 'sendrecv';
+                        } catch {
+                            /* ignore */
+                        }
+                        videoSenderRef.current = vt.sender as RtpSender;
+                    }
+                }
+
                 await flushIce();
                 const answer = await pc.createAnswer();
                 await pc.setLocalDescription(answer);
@@ -637,16 +718,21 @@ export function CallProvider({ apiUrl, userId, children }: Props) {
         Haptics.selectionAsync();
     }, [sendSignal, update]);
 
+    /** Speaker on/off. Turning it off goes to the best connected device (bluetooth > wired > phone). */
     const toggleSpeaker = useCallback(() => {
-        const next = !stateRef.current.isSpeaker;
-        try {
-            InCallManager.setForceSpeakerphoneOn(next);
-        } catch {
-            /* ignore */
+        const a = audioRef.current;
+        if (stateRef.current.isSpeaker) {
+            setAudioRoute(
+                a.devices.includes('BLUETOOTH')
+                    ? 'BLUETOOTH'
+                    : a.devices.includes('WIRED_HEADSET')
+                        ? 'WIRED_HEADSET'
+                        : 'EARPIECE'
+            );
+        } else {
+            setAudioRoute('SPEAKER_PHONE');
         }
-        update({ isSpeaker: next });
-        Haptics.selectionAsync();
-    }, [update]);
+    }, [setAudioRoute]);
 
     const toggleCamera = useCallback(async () => {
         if (stateRef.current.phase !== 'active') return;
@@ -803,8 +889,33 @@ export function CallProvider({ apiUrl, userId, children }: Props) {
     useEffect(() => () => teardownMedia(), [teardownMedia]);
 
     const value = useMemo<CallContextValue>(
-        () => ({ state, isReady, startCall, acceptCall, rejectCall, endCall, toggleMute, toggleSpeaker, toggleCamera }),
-        [state, isReady, startCall, acceptCall, rejectCall, endCall, toggleMute, toggleSpeaker, toggleCamera]
+        () => ({
+            state,
+            isReady,
+            startCall,
+            acceptCall,
+            rejectCall,
+            endCall,
+            toggleMute,
+            toggleSpeaker,
+            toggleCamera,
+            audioDevices: audio.devices,
+            audioRoute: audio.selected,
+            setAudioRoute,
+        }),
+        [
+            state,
+            isReady,
+            startCall,
+            acceptCall,
+            rejectCall,
+            endCall,
+            toggleMute,
+            toggleSpeaker,
+            toggleCamera,
+            audio,
+            setAudioRoute,
+        ]
     );
 
     return <CallContext.Provider value={value}>{children}</CallContext.Provider>;

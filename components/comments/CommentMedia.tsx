@@ -85,7 +85,7 @@ function barHeights(seed: string) {
 // one voice note at a time; stores a pause callback + owner id, never the raw player
 let currentlyPlaying: { id: symbol; pause: () => void } | null = null;
 
-const VoiceBubble = memo(function VoiceBubble({ uri, duration, seed }: { uri: string; duration: number; seed: string }) {
+export const VoiceBubble = memo(function VoiceBubble({ uri, duration, seed }: { uri: string; duration: number; seed: string }) {
     const [src, setSrc] = useState<string | null>(null); // loaded on first tap
     const player = useAudioPlayer(src);
     const status = useAudioPlayerStatus(player);

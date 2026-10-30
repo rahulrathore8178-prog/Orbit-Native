@@ -1,21 +1,19 @@
 {
   "expo": {
-    "name": "Orbit",
+    "name": "Orbit-Development",
     "slug": "orbit",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "orientation": "portrait",
     "icon": "./assets/images/Orbit-Logo.png",
     "scheme": "orbitnative",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#000000",
     "android": {
-      "package": "com.orbit.app",
+      "package": "com.orbitdevelopment.app",
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
-        "backgroundColor": "#000000",
         "foregroundImage": "./assets/images/Orbit-Logo.png",
-        "backgroundImage": "./assets/images/Orbit-Logo.png",
-        "monochromeImage": "./assets/images/Orbit-Logo.png"
+        "backgroundColor": "#000000"
       },
       "predictiveBackGestureEnabled": false,
       "permissions": [
@@ -25,14 +23,18 @@
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.CAMERA",
         "android.permission.BLUETOOTH_CONNECT",
-        "android.permission.WAKE_LOCK"
+        "android.permission.WAKE_LOCK",
+        "android.permission.BLUETOOTH",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
       ]
     },
     "ios": {
       "bundleIdentifier": "com.orbit.app",
       "supportsTablet": true,
       "infoPlist": {
-        "UIBackgroundModes": ["audio"],
+        "UIBackgroundModes": [
+          "audio"
+        ],
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true,
           "NSAllowsLocalNetworking": true
@@ -72,9 +74,7 @@
           "color": "#6D8BFF"
         }
       ],
-      [
-        "expo-system-ui"
-      ],
+      "expo-system-ui",
       [
         "expo-location",
         {
@@ -82,7 +82,6 @@
         }
       ],
       "expo-video",
-      "expo-audio",
       "expo-font",
       "expo-asset",
       [
@@ -100,7 +99,18 @@
       ],
       "expo-secure-store",
       "@react-native-google-signin/google-signin",
-      "expo-image"
+      "expo-image",
+      "expo-web-browser",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableProguardInReleaseBuilds": false,
+            "enableShrinkResourcesInReleaseBuilds": false,
+            "extraProguardRules": "# react-native-reanimated\n-keep class com.swmansion.reanimated.** { *; }\n-keep class com.facebook.react.turbomodule.** { *; }\n\n# WebRTC\n-keep class org.webrtc.** { *; }\n-keep interface org.webrtc.** { *; }\n-keep class org.webrtc.**$* { *; }\n-dontwarn org.webrtc.**\n-dontwarn org.webrtc.Dav1dDecoder\n-dontwarn org.webrtc.Dav1dDecoder$Natives\n-dontwarn org.webrtc.Dav1dDecoderJni\n\n# InCallManager\n-keep class com.zxcpoiu.incallmanager.** { *; }\n-dontwarn com.zxcpoiu.incallmanager.**"
+          }
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
@@ -109,9 +119,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "c8aa0656-d930-4a61-a7ec-58cb06b0c043"
+        "projectId": "509ad21b-0c8b-4b02-bb10-841f5e59c867"
       }
     },
-    "owner": "vivekmandalls-team"
+    "owner": "orbitlives-team"
   }
 }

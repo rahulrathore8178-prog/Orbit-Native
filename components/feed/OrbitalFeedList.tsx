@@ -1,6 +1,7 @@
 import type { OrbitalFeed } from '@/hooks/feed/useOrbitalFeed';
-import { ComponentProps, useCallback, useEffect, useMemo } from 'react';
-import { ActivityIndicator, ListRenderItem, Pressable, Text, View } from 'react-native';
+import { FeedFooter } from '@/components/feed/FeedFooter';
+import { ComponentProps, useCallback, useEffect } from 'react';
+import { ListRenderItem, Pressable, Text, View } from 'react-native';
 import Reanimated, {
     useAnimatedStyle,
     useSharedValue,
@@ -87,14 +88,23 @@ type Props<T extends OrbitalPost> = {
     feed: OrbitalFeed<T>;
     /** The same renderItem you use for the main feed. */
     renderItem: ListRenderItem<T>;
-    /** Props shared with the main feed list (scroll handler, viewability, extraData...). */
+    /** Props shared with the main feed list (scroll handler, viewability pairs, extraData...). */
     listProps: Partial<ListProps>;
-    /** header + tray height: content starts below it */
+    /** header height: content starts below it */
     topInset: number;
+    /** floating tab bar height (+ safe area): the footer loader sits just above it */
+    bottomInset: number;
     onBrowse: () => void;
 };
 
-export function OrbitalFeedList<T extends OrbitalPost>({ feed, renderItem, listProps, topInset, onBrowse }: Props<T>) {
+export function OrbitalFeedList<T extends OrbitalPost>({
+    feed,
+    renderItem,
+    listProps,
+    topInset,
+    bottomInset,
+    onBrowse,
+}: Props<T>) {
     // each post shows which orbital it came from
     const renderWithOrbital: ListRenderItem<T> = useCallback(
         (info) => (
@@ -107,42 +117,37 @@ export function OrbitalFeedList<T extends OrbitalPost>({ feed, renderItem, listP
                 {renderItem(info)}
             </View>
         ),
-        [renderItem]
+        [renderItem],
     );
 
-const footer = useMemo(() => {
-    if (feed.posts.length === 0) return null; // skeleton / empty states handle themselves
     return (
-        <View className="items-center py-6">
-            {feed.loadingMore ? (
-                <ActivityIndicator color="#a3a3a3" />
-            ) : !feed.hasMore ? (
-                <Text className="text-xs text-white/40">You&apos;re all caught up</Text>
-            ) : null}
-        </View>
+        <Reanimated.FlatList
+            initialNumToRender={3}
+            maxToRenderPerBatch={4}
+            windowSize={7}
+            {...listProps}
+            data={feed.posts}
+            keyExtractor={keyExtractor}
+            renderItem={renderWithOrbital}
+            refreshing={feed.refreshing}
+            onRefresh={feed.refresh}
+            progressViewOffset={topInset}
+            contentContainerStyle={{ paddingTop: topInset + 12 }}
+            onEndReached={feed.hasMore ? feed.loadMore : undefined}
+            onEndReachedThreshold={1.5}
+            ListEmptyComponent={
+                <FeedEmpty loading={feed.loading} error={feed.error} onRetry={feed.retry} onBrowse={onBrowse} />
+            }
+            ListFooterComponent={
+                feed.posts.length === 0 ? null : (
+                    <FeedFooter
+                        loading={feed.loadingMore}
+                        hasMore={feed.hasMore}
+                        hasItems
+                        bottomInset={bottomInset}
+                    />
+                )
+            }
+        />
     );
-}, [feed.loadingMore, feed.hasMore, feed.posts.length]);
-
-return (
-    <Reanimated.FlatList
-        initialNumToRender={3}
-        maxToRenderPerBatch={4}
-        windowSize={7}
-        {...listProps}
-        data={feed.posts}
-        keyExtractor={keyExtractor}
-        renderItem={renderWithOrbital}
-        refreshing={feed.refreshing}
-        onRefresh={feed.refresh}
-        
-        progressViewOffset={topInset}
-        contentContainerStyle={{ paddingTop: topInset + 12, paddingBottom: 12 }}
-        onEndReached={feed.hasMore ? feed.loadMore : undefined}
-        onEndReachedThreshold={1.5}
-        ListEmptyComponent={
-            <FeedEmpty loading={feed.loading} error={feed.error} onRetry={feed.retry} onBrowse={onBrowse} />
-        }
-        ListFooterComponent={footer}
-    />
-);
 }

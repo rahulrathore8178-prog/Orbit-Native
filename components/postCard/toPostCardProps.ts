@@ -11,21 +11,10 @@ export function toPostcardProps(
     author: PostAuthor,
 ): Pick<
     PostcardProps,
-    | 'id'
-    | 'author'
-    | 'createdAt'
-    | 'content'
-    | 'image'
-    | 'video'
-    | 'voiceNote'
-    | 'voiceNoteDuration'
-    | 'mediaWidth'
-    | 'mediaHeight'
-    | 'likesCount'
-    | 'commentsCount'
-    | 'isLikedByCurrentUser'
-    | 'isSaved'
-> {
+    | 'id' | 'author' | 'createdAt' | 'content' | 'image' | 'video' | 'voiceNote'
+    | 'voiceNoteDuration' | 'mediaWidth' | 'mediaHeight' | 'likesCount'
+    | 'commentsCount' | 'isLikedByCurrentUser' | 'isSaved'
+> & { views: number } {
     return {
         id: post.id ?? post._id,
         author,
@@ -41,5 +30,6 @@ export function toPostcardProps(
         commentsCount: post.commentsCount ?? 0,
         isLikedByCurrentUser: Boolean(post.isLikedByCurrentUser ?? post.isLiked),
         isSaved: Boolean(post.isSaved),
+        views: Number(post.views ?? post.viewsCount ?? 0),
     };
 }

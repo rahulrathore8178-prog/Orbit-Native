@@ -22,12 +22,16 @@ export default function ConversationRoute() {
     if (!contact) dispatch(fetchFriends())
   }, [contact, dispatch])
 
-  // ----- Chat logic (WebSocket + history + send) lives in the hook -----
   const handleOffline = useCallback(
     () => showToast('Not connected. Check your internet connection.', 'offline'),
     [showToast]
   )
-  const { messages, isConnected, sendMessage, editMessage, deleteMessage, clearMessages } = useChat({
+
+  const {
+    messages, isConnected, hasMore, loadOlder,
+    sendMessage, sendMedia, retryMessage, discardMessage,
+    editMessage, deleteMessage, clearMessages,
+  } = useChat({
     apiUrl: API_URL,
     selectedContact: contact,
     onOffline: handleOffline,
@@ -35,7 +39,6 @@ export default function ConversationRoute() {
 
   const goBack = useCallback(() => router.back(), [])
 
-  // same route the Messages tab uses
   const openProfile = useCallback((c: Friend) => {
     router.push({ pathname: '/user/[id]', params: { id: c._id } } as any)
   }, [])
@@ -48,8 +51,8 @@ export default function ConversationRoute() {
           animation: 'slide_from_right',
           animationDuration: 300,
           gestureEnabled: true,
-          fullScreenGestureEnabled: true, // swipe back from anywhere, not just the edge
-          contentStyle: { backgroundColor: '#000' }, // no white flash while the screen slides
+          fullScreenGestureEnabled: true,
+          contentStyle: { backgroundColor: '#000' },
         }}
       />
       {contact ? (
@@ -58,8 +61,13 @@ export default function ConversationRoute() {
           messages={messages}
           isConnected={isConnected}
           toast={toast}
+          hasMore={hasMore}
           onBack={goBack}
           onSend={sendMessage}
+          onSendMedia={sendMedia}
+          onRetry={retryMessage}
+          onDiscard={discardMessage}
+          onLoadOlder={loadOlder}
           onEditMessage={editMessage}
           onOpenProfile={openProfile}
           onDeleteMessage={deleteMessage}

@@ -202,9 +202,29 @@ const Settings = () => {
     const [loggingOut, setLoggingOut] = useState(false);
     const [discoverable, setDiscoverable] =
         useState(true);
-
     const [loadingDiscover, setLoadingDiscover] =
         useState(false);
+
+    const [isPrivate, setIsPrivate] = useState(false);
+    const [privacyLoaded, setPrivacyLoaded] = useState(false);
+    const [savingPrivacy, setSavingPrivacy] = useState(false);
+
+    useEffect(() => {
+        (async () => {
+            try {
+                const token = await authStorage.getToken();
+                const { data } = await axios.get(`${API_URL}/api/auth/user/me`, {
+                    withCredentials: true,
+                    headers: { Authorization: `Bearer ${token}` },
+                });
+                setIsPrivate(data?.user?.isPrivate === true);
+            } catch (err) {
+                console.log('load privacy failed', err);
+            } finally {
+                setPrivacyLoaded(true);
+            }
+        })();
+    }, []);
 
     useEffect(() => {
         (async () => {
@@ -226,6 +246,26 @@ const Settings = () => {
             }
         })();
     }, []);
+
+    const togglePrivacy = async (value: boolean) => {
+        if (savingPrivacy) return;
+        setIsPrivate(value); // update the switch right away
+        setSavingPrivacy(true);
+        try {
+            const token = await authStorage.getToken();
+            const { data } = await axios.patch(
+                `${API_URL}/api/social/privacy`,
+                { isPrivate: value },
+                { withCredentials: true, headers: { Authorization: `Bearer ${token}` } },
+            );
+            setIsPrivate(data.isPrivate === true); // trust the server's answer
+        } catch (error) {
+            console.error('toggle privacy failed', error);
+            setIsPrivate(!value); // roll back if saving failed
+        } finally {
+            setSavingPrivacy(false);
+        }
+    };
 
     const toggleDiscoverability = async (
         value: boolean
@@ -303,7 +343,7 @@ const Settings = () => {
             >
                 <Group title="Privacy" index={3}>
                     <View
-                        className="flex-row items-center justify-between rounded-2xl bg-neutral-900 px-4 py-4"
+                        className="flex-row items-center justify-between rounded-2xl bg-neutral-900 px-4 py-4 mb-3"
                     >
                         <View className="flex-1">
                             <Text className="text-white font-semibold">
@@ -321,6 +361,25 @@ const Settings = () => {
                             onValueChange={
                                 toggleDiscoverability
                             }
+                        />
+                    </View>
+
+                    <View className="flex-row items-center justify-between rounded-2xl bg-neutral-900 px-4 py-4">
+                        <View className="flex-1 pr-3">
+                            <Text className="font-semibold text-white">
+                                {isPrivate ? 'Private profile' : 'Public profile'}
+                            </Text>
+                            <Text className="mt-1 text-sm text-neutral-400">
+                                {isPrivate
+                                    ? 'Only your friends can see your posts.'
+                                    : 'Anyone can see your posts.'}
+                            </Text>
+                        </View>
+
+                        <Switch
+                            value={isPrivate}
+                            disabled={!privacyLoaded || savingPrivacy}
+                            onValueChange={togglePrivacy}
                         />
                     </View>
                 </Group>

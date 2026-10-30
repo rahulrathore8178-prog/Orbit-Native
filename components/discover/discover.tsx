@@ -61,7 +61,7 @@ export default function DiscoverScreen() {
   const renderUser = ({ item }: { item: NearbyUser }) => (
     <View className="flex-row items-center p-3 border-b border-gray-800">
       <Text className="text-white font-semibold flex-1">{item.username}</Text>
-      <Text className="text-gray-400">{item.distance}m away</Text>
+      {/* <Text className="text-gray-400">{item.distance}m away</Text> */}
     </View>
   );
 
