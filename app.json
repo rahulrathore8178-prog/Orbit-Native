@@ -92,6 +92,23 @@
         }
       ],
       [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow $(PRODUCT_NAME) to use your camera",
+          "microphonePermission": "Allow $(PRODUCT_NAME) to record audio for videos",
+          "recordAudioAndroid": true
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow $(PRODUCT_NAME) to access your photos",
+          "savePhotosPermission": "Allow $(PRODUCT_NAME) to save photos",
+          "isAccessMediaLocationEnabled": true
+        }
+      ],
+      "expo-video",
+      [
         "expo-audio",
         {
           "microphonePermission": "Allow $(PRODUCT_NAME) to record voice notes."
