@@ -1,4 +1,4 @@
-import React, { memo, useEffect, useMemo, useRef } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -10,6 +10,16 @@ import Svg, { Circle } from 'react-native-svg';
 export const MAX_VIDEO_SECONDS = 60;
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 const BTN = 84, BOX = 136, R = 41, CIRC = 2 * Math.PI * R, C = (BTN + 8) / 2;
+
+/* ---- zoom feel: tweak these ---- */
+/** Finger travel (px) before zoom starts, so a tiny wobble while holding doesn't zoom. */
+const ZOOM_DEAD_ZONE = 10;
+/** How much of the finger travel is passed on. Lower = slower / less aggressive zoom. */
+const ZOOM_GAIN = 0.45;
+/** 0..1 per tick. Lower = smoother/laggier glide, higher = snappier. */
+const ZOOM_SMOOTHING = 0.22;
+/** How often (ms) zoom updates are sent to the parent. ~30fps keeps the camera from being flooded. */
+const ZOOM_TICK_MS = 32;
 
 type Props = {
     recording: boolean;
@@ -28,6 +38,12 @@ const Dot = ({ top, color, size = 6 }: { top?: boolean; color: string; size?: nu
     }} />
 );
 
+/** dead zone + linear gain, keeps the sign (negative = finger moved up) */
+const shapeDrag = (dy: number) => {
+    const m = Math.max(0, Math.abs(dy) - ZOOM_DEAD_ZONE) * ZOOM_GAIN;
+    return dy < 0 ? -m : m;
+};
+
 export const CaptureButton = memo(function CaptureButton({
     recording, disabled, onTap, onHoldStart, onHoldEnd, onZoomDrag,
 }: Props) {
@@ -36,6 +52,13 @@ export const CaptureButton = memo(function CaptureButton({
     const press = useSharedValue(1);
     const prog = useSharedValue(0);
     const holding = useRef(false);
+
+    // zoom smoothing state
+    const target = useRef(0);
+    const current = useRef(0);
+    const lastSent = useRef(0);
+    const lastTick = useRef(0);
+    const raf = useRef<number | null>(null);
 
     useEffect(() => {
         rot.value = withRepeat(withTiming(360, { duration: 9000, easing: Easing.linear }), -1, false);
@@ -49,26 +72,64 @@ export const CaptureButton = memo(function CaptureButton({
         } else prog.value = withTiming(0, { duration: 150 });
     }, [recording, rec, prog]);
 
+    const h = useRef({ disabled, onTap, onHoldStart, onHoldEnd, onZoomDrag });
+    h.current = { disabled, onTap, onHoldStart, onHoldEnd, onZoomDrag };
+
+    const stopZoomLoop = useCallback(() => {
+        if (raf.current != null) cancelAnimationFrame(raf.current);
+        raf.current = null;
+    }, []);
+
+    const startZoomLoop = useCallback(() => {
+        stopZoomLoop();
+        target.current = 0; current.current = 0; lastSent.current = 0; lastTick.current = 0;
+        const step = (t: number) => {
+            if (!holding.current) { raf.current = null; return; }
+            if (t - lastTick.current >= ZOOM_TICK_MS) {
+                lastTick.current = t;
+                current.current += (target.current - current.current) * ZOOM_SMOOTHING;
+                if (Math.abs(target.current - current.current) < 0.05) current.current = target.current;
+                if (Math.abs(current.current - lastSent.current) >= 0.25) {
+                    lastSent.current = current.current;
+                    h.current.onZoomDrag(current.current);
+                }
+            }
+            raf.current = requestAnimationFrame(step);
+        };
+        raf.current = requestAnimationFrame(step);
+    }, [stopZoomLoop]);
+
+    useEffect(() => () => stopZoomLoop(), [stopZoomLoop]);
+
     const gesture = useMemo(() => {
         const down = () => { press.value = withSpring(0.88, { damping: 16, stiffness: 300 }); };
         const up = () => { press.value = withSpring(1, { damping: 14, stiffness: 220 }); };
 
         const tap = Gesture.Tap().maxDuration(220).runOnJS(true)
             .onBegin(down)
-            .onEnd((_e, ok) => { if (ok && !disabled) onTap(); })
+            .onEnd((_e, ok) => { if (ok && !h.current.disabled) h.current.onTap(); })
             .onFinalize(up);
 
         const hold = Gesture.Pan().activateAfterLongPress(220).runOnJS(true)
             .onBegin(down)
-            .onStart(() => { if (disabled) return; holding.current = true; onHoldStart(); })
-            .onUpdate((e) => { if (holding.current) onZoomDrag(e.translationY); })
+            .onStart(() => {
+                if (h.current.disabled) return;
+                holding.current = true;
+                startZoomLoop();
+                h.current.onHoldStart();
+            })
+            .onUpdate((e) => { if (holding.current) target.current = shapeDrag(e.translationY); })
+            // finger lifted (or the touch was cancelled) -> stop recording immediately
             .onFinalize(() => {
                 up();
-                if (holding.current) { holding.current = false; onHoldEnd(); }
+                if (!holding.current) return;
+                holding.current = false;
+                stopZoomLoop();
+                h.current.onHoldEnd();
             });
 
         return Gesture.Race(hold, tap);
-    }, [disabled, onTap, onHoldStart, onHoldEnd, onZoomDrag, press]);
+    }, [press, startZoomLoop, stopZoomLoop]);
 
     const ringA = useAnimatedStyle(() => ({ transform: [{ rotate: `${rot.value}deg` }], opacity: 1 - rec.value * 0.75 }));
     const ringB = useAnimatedStyle(() => ({ transform: [{ rotate: `${-rot.value * 1.7}deg` }], opacity: 1 - rec.value * 0.75 }));

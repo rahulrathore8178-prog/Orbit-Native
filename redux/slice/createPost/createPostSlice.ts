@@ -71,8 +71,9 @@ export const submitPost = createAsyncThunk<SubmitResult, PostDraft, { rejectValu
         voice,
         orbitalIds,
       });
-    } catch (e) {
-      return rejectWithValue(getErrorMessage(e, e instanceof Error ? e.message : 'Post failed'));
+    } catch (e: any) {
+      console.error('[submitPost] failed:', e?.message, '\n', e?.stack);
+      return rejectWithValue(e?.message ?? 'Something went wrong');
     }
   },
 );
@@ -95,7 +96,7 @@ const slice = createSlice({
     setCaption(state, { payload }: PayloadAction<string>) {
       state.caption = payload;
     },
-    setMedia(state, { payload }: PayloadAction<PickedMedia>) {
+    setMedia(state, { payload }: PayloadAction<PickedMedia | null>) {
       state.media = payload;
       state.error = '';
     },

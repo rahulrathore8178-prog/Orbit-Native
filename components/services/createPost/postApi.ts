@@ -76,7 +76,7 @@ export async function sendPost({ destination, caption, media, voice, orbitalIds 
 
   // Compress ONCE (not per destination) before anything is uploaded.
   const [headers, prepared] = await Promise.all([
-    getAuthHeaders().then((h) => ({ ...h })),
+    Promise.resolve(getAuthHeaders()).then((h) => ({ ...h })),
     voice ? Promise.resolve(media) : prepareMedia(media),
   ]);
 

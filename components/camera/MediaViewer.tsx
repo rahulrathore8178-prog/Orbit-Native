@@ -21,22 +21,49 @@ async function trimVideo(uri: string, startSec: number, endSec: number) {
     return out.startsWith('file://') ? out : `file://${out}`;
 }
 
-type Props = { media: PickedMedia; visible: boolean; onClose: () => void; onSave: (m: PickedMedia) => void };
+type EditorProps = {
+    media: PickedMedia;
+    onClose: () => void;
+    /** Called when the user taps the tick (top-right) - move to the next step. */
+    onSave: (m: PickedMedia) => void;
+    /** Kept so existing callers still compile; no longer used (the tick button replaces the Proceed button). */
+    confirmLabel?: string;
+};
+type Props = EditorProps & { visible: boolean };
 
-export function MediaViewer({ media, visible, onClose, onSave }: Props) {
+/** Editor without a Modal, so it can be embedded (e.g. inside the camera). */
+export function MediaEditor(props: EditorProps) {
     return (
-        <Modal visible={visible} animationType="fade" statusBarTranslucent onRequestClose={onClose}>
+        <View style={styles.editorRoot}>
+            {props.media.kind === 'video' ? <VideoEditor {...props} /> : <ImageEditor {...props} />}
+        </View>
+    );
+}
+
+export function MediaViewer({ visible, ...rest }: Props) {
+    return (
+        <Modal visible={visible} animationType="fade" statusBarTranslucent onRequestClose={rest.onClose}>
             <GestureHandlerRootView style={styles.root}>
-                {media.kind === 'video'
-                    ? <VideoEditor media={media} onClose={onClose} onSave={onSave} />
-                    : <ImageEditor media={media} onClose={onClose} onSave={onSave} />}
+                <MediaEditor {...rest} />
             </GestureHandlerRootView>
         </Modal>
     );
 }
 
-/* ================= IMAGE: pinch/pan/double-tap zoom + rotate, flip, crop, undo ================= */
-function ImageEditor({ media, onClose, onSave }: Omit<Props, 'visible'>) {
+/** Round white tick button for the top-right corner. */
+const TickButton = ({ onPress, busy }: { onPress: () => void; busy?: boolean }) => (
+    <Pressable
+        onPress={onPress}
+        disabled={busy}
+        hitSlop={8}
+        style={({ pressed }) => [styles.tick, pressed && { opacity: 0.85, transform: [{ scale: 0.95 }] }]}
+    >
+        {busy ? <ActivityIndicator color="#ffffff" /> : <Check size={25} color="#ffffff" strokeWidth={3} />}
+    </Pressable>
+);
+
+/* ================= IMAGE ================= */
+function ImageEditor({ media, onClose, onSave }: EditorProps) {
     const { width: W, height: H } = useWindowDimensions();
     const insets = useSafeAreaInsets();
     const [uri, setUri] = useState(media.uri);
@@ -89,7 +116,11 @@ function ImageEditor({ media, onClose, onSave }: Omit<Props, 'visible'>) {
         run([{ crop: { originX: Math.round((w - cw) / 2), originY: Math.round((h - ch) / 2), width: cw, height: ch } }]);
     };
     const undo = () => setHistory((h) => { if (!h.length) return h; setUri(h[h.length - 1]); return h.slice(0, -1); });
-    const done = () => (edited ? onSave({ ...media, uri, name: media.name.replace(/\.[^.]+$/, '') + '.jpg', mime: 'image/jpeg' } as PickedMedia) : onClose());
+    // tick -> next step (with edits if any, otherwise the original media)
+    const done = () => {
+        if (!edited) { onSave(media); return; }
+        onSave({ ...media, uri, name: media.name.replace(/\.[^.]+$/, '') + '.jpg', mime: 'image/jpeg' } as PickedMedia);
+    };
 
     const Tool = ({ icon: Icon, label, onPress, active, disabled }: any) => (
         <Pressable onPress={onPress} disabled={disabled || busy} style={[styles.tool, (disabled || busy) && { opacity: 0.35 }]}>
@@ -106,14 +137,12 @@ function ImageEditor({ media, onClose, onSave }: Omit<Props, 'visible'>) {
                 </Animated.View>
             </GestureDetector>
 
-            <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
+            <View style={[styles.topBar, { paddingTop: insets.top + 8 }]} pointerEvents="box-none">
                 <Pressable onPress={onClose} style={styles.round}><X size={22} color="#fff" /></Pressable>
-                <Pressable onPress={done} disabled={busy} style={[styles.round, { backgroundColor: '#fff', width: 'auto', paddingHorizontal: 16 }]}>
-                    <Check size={18} color="#000" /><Text style={styles.doneText}>Done</Text>
-                </Pressable>
+                <TickButton onPress={done} busy={busy} />
             </View>
 
-            <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 12 }]}>
+            <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 12) + 12 }]}>
                 {cropOpen && (
                     <View style={styles.chips}>
                         {([['1:1', 1], ['4:5', 4 / 5], ['16:9', 16 / 9], ['9:16', 9 / 16]] as const).map(([l, r]) => (
@@ -127,14 +156,13 @@ function ImageEditor({ media, onClose, onSave }: Omit<Props, 'visible'>) {
                     <Tool icon={Crop} label="Crop" active={cropOpen} onPress={() => setCropOpen((v) => !v)} />
                     <Tool icon={Undo2} label="Undo" disabled={!edited} onPress={undo} />
                 </View>
-                {busy && <ActivityIndicator color="#fff" style={{ position: 'absolute', top: -40, alignSelf: 'center' }} />}
             </View>
         </>
     );
 }
 
-/* ================= VIDEO: playback + trim timeline ================= */
-function VideoEditor({ media, onClose, onSave }: Omit<Props, 'visible'>) {
+/* ================= VIDEO ================= */
+function VideoEditor({ media, onClose, onSave }: EditorProps) {
     const { width: W } = useWindowDimensions();
     const insets = useSafeAreaInsets();
     const TW = W - 40;
@@ -146,6 +174,8 @@ function VideoEditor({ media, onClose, onSave }: Omit<Props, 'visible'>) {
     const [busy, setBusy] = useState(false);
     const durRef = useRef(dur), rangeRef = useRef(range);
     durRef.current = dur; rangeRef.current = range;
+    const alive = useRef(true);
+    useEffect(() => () => { alive.current = false; }, []);
 
     const startPx = useSharedValue(0), endPx = useSharedValue(TW), head = useSharedValue(0), ctx = useSharedValue(0);
 
@@ -167,7 +197,7 @@ function VideoEditor({ media, onClose, onSave }: Omit<Props, 'visible'>) {
         setRange([0, end]); startPx.value = 0; endPx.value = (end / dur) * TW;
         Promise.all(Array.from({ length: 8 }, (_, i) =>
             VideoThumbnails.getThumbnailAsync(media.uri, { time: Math.floor((i / 8) * dur * 1000), quality: 0.4 }).then((t) => t.uri)))
-            .then(setThumbs).catch(() => { });
+            .then((t) => { if (alive.current) setThumbs(t); }).catch(() => { });
     }, [dur]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const commit = (s: number, e: number) => {
@@ -198,31 +228,30 @@ function VideoEditor({ media, onClose, onSave }: Omit<Props, 'visible'>) {
     const dimR = useAnimatedStyle(() => ({ left: endPx.value, width: TW - endPx.value }));
     const ph = useAnimatedStyle(() => ({ left: head.value }));
 
+    // tick -> trim if needed, then next step
     const save = async () => {
         const [a, b] = range;
-        const changed = a > 0.05 || b < dur - 0.05;
+        const changed = dur > 0 && (a > 0.05 || b < dur - 0.05);
         setBusy(true);
         try {
             const uri = changed ? await trimVideo(media.uri, a, b) : media.uri;
-            onSave({ ...media, uri, duration: b - a } as PickedMedia);
+            onSave({ ...media, uri, duration: changed ? b - a : (media as any).duration ?? dur } as PickedMedia);
         } catch (e) {
             console.warn('trim failed', e);
             Alert.alert('Trim failed', 'Could not trim this video. Try again or pick a shorter clip.');
-        } finally { setBusy(false); }
+        } finally { if (alive.current) setBusy(false); }
     };
 
     return (
         <>
             <VideoView player={player} style={StyleSheet.absoluteFill} contentFit="contain" nativeControls={false} />
 
-            <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
+            <View style={[styles.topBar, { paddingTop: insets.top + 8 }]} pointerEvents="box-none">
                 <Pressable onPress={onClose} style={styles.round}><X size={22} color="#fff" /></Pressable>
-                <Pressable onPress={save} disabled={busy} style={[styles.round, { backgroundColor: '#fff', width: 'auto', paddingHorizontal: 16 }]}>
-                    {busy ? <ActivityIndicator color="#000" /> : <><Check size={18} color="#000" /><Text style={styles.doneText}>Done</Text></>}
-                </Pressable>
+                <TickButton onPress={save} busy={busy} />
             </View>
 
-            <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 18 }]}>
+            <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 12) + 12 }]}>
                 <Text style={styles.trimInfo}>{fmt(range[0])} – {fmt(range[1])}  ·  {fmt(range[1] - range[0])} selected (max {MAX_SEC}s)</Text>
                 <View style={{ height: 56, marginHorizontal: 20 }}>
                     <View style={styles.strip}>
@@ -242,10 +271,11 @@ function VideoEditor({ media, onClose, onSave }: Omit<Props, 'visible'>) {
 
 const styles = StyleSheet.create({
     root: { flex: 1, backgroundColor: '#000' },
-    topBar: { position: 'absolute', top: 0, left: 0, right: 0, paddingHorizontal: 16, flexDirection: 'row', justifyContent: 'space-between' },
+    editorRoot: { flex: 1, backgroundColor: '#000' },
+    topBar: { position: 'absolute', top: 0, left: 0, right: 0, paddingHorizontal: 16, flexDirection: 'row', justifyContent: 'space-between', zIndex: 10, elevation: 10 },
     round: { height: 42, minWidth: 42, borderRadius: 21, backgroundColor: 'rgba(255,255,255,0.14)', alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 },
-    doneText: { fontWeight: '800', color: '#000' },
-    bottomBar: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingTop: 14, backgroundColor: 'rgba(0,0,0,0.55)' },
+    tick: { height: 42, width: 42, borderRadius: 21, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
+    bottomBar: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingTop: 14, backgroundColor: 'rgba(0,0,0,0.55)', zIndex: 10, elevation: 10 },
     tools: { flexDirection: 'row', justifyContent: 'space-around' },
     tool: { alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 6 },
     toolLabel: { color: '#fff', fontSize: 11.5, fontWeight: '600' },
