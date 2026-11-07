@@ -1,6 +1,6 @@
 import axios, { AxiosError } from 'axios';
 import { authStorage } from './authStorage';
-import { API_URL } from '../utils';
+import { POOL } from '@/components/services/serverPool';
 
 // Login/register return 401 for wrong credentials, which must NOT trigger a logout.
 const AUTH_PATHS = ['/api/auth/user/login', '/api/auth/user/register'];
@@ -11,7 +11,7 @@ export const setUnauthorizedHandler = (fn: (() => void) | null) => {
 };
 
 // Only attach the token to YOUR API, never to third parties (Giphy etc.).
-const isOurApi = (url: string) => !!API_URL && url.startsWith(API_URL);
+const isOurApi = (url: string) => POOL.some((server) => url.startsWith(server.url));
 
 let installed = false;
 

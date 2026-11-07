@@ -1,5 +1,6 @@
 import { authStorage } from '@/lib/auth/authStorage'
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { FAILOVER_ENABLED, getWsUrl, subscribe as subscribeServer, verifyActiveOrSwitch } from '../../components/services/serverPool'
 
 type MessageHandler = (data: any) => void
 type StatusHandler = (connected: boolean, reconnected: boolean) => void
@@ -9,16 +10,19 @@ const statusHandlers = new Set<StatusHandler>()
 
 let socket: WebSocket | null = null
 let userId = ''
-let wsUrl = ''
+let wsUrl = '' // only used when failover is disabled (local backend)
 let currentKey = ''
 let refs = 0
 let gen = 0
 let retry = 0
+let failedConnects = 0
+let resync = false
 let retryTimer: ReturnType<typeof setTimeout> | null = null
 let connected = false
 let closedByUs = true
 
 const toWsUrl = (url?: string) => (url ?? '').replace(/^http/i, 'ws').replace(/\/+$/, '')
+const currentWsUrl = () => (FAILOVER_ENABLED ? getWsUrl() : wsUrl)
 
 const getToken = async (): Promise<string | null> =>
     (await authStorage.getToken()) ?? (await AsyncStorage.getItem('user')) ?? (await AsyncStorage.getItem('token'))
@@ -29,16 +33,21 @@ const setConnected = (value: boolean, reconnected = false) => {
 }
 
 function connect() {
-    const s = new WebSocket(wsUrl)
+    const s = new WebSocket(currentWsUrl())
     socket = s
+    let opened = false
 
     s.onopen = async () => {
         if (socket !== s) return
         const token = await getToken()
         if (socket !== s || s.readyState !== WebSocket.OPEN) return
+        opened = true
         s.send(JSON.stringify({ type: 'register', userId, token }))
-        const wasReconnect = retry > 0
+        // After a server switch we must report "reconnected" so screens re-fetch what they missed.
+        const wasReconnect = retry > 0 || resync
         retry = 0
+        failedConnects = 0
+        resync = false
         setConnected(true, wasReconnect)
     }
 
@@ -62,9 +71,21 @@ function connect() {
 
     s.onclose = (e) => {
         console.log('WS: closed', e.code, e.reason)
-        if (socket === s) socket = null
+        if (socket !== s) return // stale socket (we already replaced or stopped it)
+        socket = null
         setConnected(false)
         if (closedByUs) return
+
+        // Could not even connect: maybe this server is full/suspended. Check it over HTTP and
+        // switch if so; the subscribeServer() handler below then reconnects to the new server.
+        if (!opened) {
+            failedConnects += 1
+            if (FAILOVER_ENABLED && failedConnects >= 2) {
+                failedConnects = 0
+                verifyActiveOrSwitch().catch(() => { })
+            }
+        }
+
         const delay = Math.min(1000 * 2 ** retry, 10000) // 1s, 2s, 4s ... max 10s
         retry += 1
         retryTimer = setTimeout(connect, delay)
@@ -74,6 +95,7 @@ function connect() {
 function start() {
     closedByUs = false
     retry = 0
+    failedConnects = 0
     connect()
 }
 
@@ -87,11 +109,28 @@ function stop() {
     setConnected(false)
 }
 
+// The active API server changed: drop the old socket and reconnect to the new server right away.
+function restartForNewServer() {
+    if (refs === 0 || closedByUs) return
+    if (retryTimer) clearTimeout(retryTimer)
+    retryTimer = null
+    const s = socket
+    socket = null
+    try { s?.close() } catch { }
+    setConnected(false)
+    retry = 0
+    failedConnects = 0
+    resync = true
+    connect()
+}
+subscribeServer(restartForNewServer)
+
 /** Ref-counted: the socket lives while at least one caller holds it. Returns a release function. */
 export function acquireChatSocket(uid: string, apiUrl: string) {
-    const key = `${uid}|${apiUrl}`
+    // With failover the server can change under us, so only the account identifies the socket.
+    const key = FAILOVER_ENABLED ? uid : `${uid}|${apiUrl}`
     if (refs > 0 && key !== currentKey) {
-        stop() // account / server changed
+        stop() // account changed
         refs = 0
         gen += 1
     }

@@ -1,8 +1,9 @@
 import { authStorage } from "./auth/authStorage";
+import { getActiveUrl, subscribe } from "@/components/services/serverPool";
 
 const stripSlash = (v?: string) => (v ?? '').trim().replace(/\/+$/, '');
 
-export const API_URL = stripSlash(process.env.EXPO_PUBLIC_API_URL);
+export let API_URL = getActiveUrl();
 export const PYTHON_API_URL = stripSlash(process.env.EXPO_PUBLIC_PYTHON_API_URL);
 export const BASE_IMAGE_URL = stripSlash(process.env.EXPO_PUBLIC_BASE_URL);
 
@@ -45,7 +46,11 @@ export const getAuthHeaders = () => {
 export const stripHost = (p?: string) => (p ? p.replace(/^https?:\/\/[^/]+/, '') : p);
 
 // No localhost fallback: a silent fallback hides a misconfigured build.
-export const API_BASE = API_URL.replace(/^ws/, 'http');
+export let API_BASE = API_URL.replace(/^ws/, 'http');
+subscribe((server) => {
+    API_URL = server.url;
+    API_BASE = server.url;
+});
 
 export const resolveImg = (p?: string) =>
     !p ? p : /^https?:\/\//.test(p) ? p : `${API_BASE}${p}`;
