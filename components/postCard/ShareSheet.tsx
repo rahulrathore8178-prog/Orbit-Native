@@ -1,6 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import axios from 'axios';
 import { BlurView } from 'expo-blur';
+import * as Haptics from 'expo-haptics';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     ActivityIndicator,
@@ -15,16 +15,21 @@ import {
     View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { getAuthHeaders } from '../services/feed/postUtils';
-import { COLORS } from '../ui/neo';
-import { Avatar, SHARE_URL, fetchRecipients, showShareToast, type Recipient } from './ShareQuick';
 import { sharePostToContact } from '../services/chat/sharePost';
+import { COLORS } from '../ui/neo';
+import { Avatar, fetchRecipients, showShareToast, type Recipient } from './ShareQuick';
+
+const AVATAR = 54;
 
 type Props = {
     visible: boolean;
     postId: string | null;
     currentUserId: string;
     onClose: () => void;
+};
+
+const tick = () => {
+    if (Platform.OS !== 'web') Haptics.selectionAsync();
 };
 
 export default function ShareSheet({ visible, postId, currentUserId, onClose }: Props) {
@@ -63,6 +68,7 @@ export default function ShareSheet({ visible, postId, currentUserId, onClose }: 
     }, [users, query]);
 
     const toggle = useCallback((id: string) => {
+        tick();
         setSelected((prev) => {
             const next = new Set(prev);
             if (next.has(id)) next.delete(id);
@@ -82,11 +88,13 @@ export default function ShareSheet({ visible, postId, currentUserId, onClose }: 
         setSending(false);
 
         if (failed.length === 0) {
+            if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             onClose();
             // let the sheet start sliding away, then drop the toast from the top
             setTimeout(() => showShareToast('Shared', ids.length > 1 ? `with ${ids.length} people` : undefined), 250);
             return;
         }
+        if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         setSelected(new Set(failed)); // keep only the failed ones selected so Retry resends just those
         setError(
             failed.length === ids.length
@@ -99,9 +107,16 @@ export default function ShareSheet({ visible, postId, currentUserId, onClose }: 
         ({ item }: { item: Recipient }) => {
             const on = selected.has(item._id);
             return (
-                <Pressable onPress={() => toggle(item._id)} className="flex-row items-center px-4 py-2.5">
-                    <Avatar user={item} size={44} />
-                    <Text numberOfLines={1} className="ml-3 flex-1 text-[15px] font-semibold text-white">
+                <Pressable
+                    onPress={() => toggle(item._id)}
+                    className={`mx-2 flex-row items-center rounded-3xl px-3 py-2 ${on ? 'bg-white/10' : ''}`}
+                    style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: on }}
+                    accessibilityLabel={item.username}
+                >
+                    <Avatar user={item} size={AVATAR} />
+                    <Text numberOfLines={1} className="ml-3.5 flex-1 text-[16px] font-semibold text-white">
                         {item.username}
                     </Text>
                     <View
@@ -123,7 +138,7 @@ export default function ShareSheet({ visible, postId, currentUserId, onClose }: 
 
                 <View
                     className="overflow-hidden rounded-t-[32px] border border-b-0 border-white/15"
-                    style={{ height: '70%' }}
+                    style={{ height: '72%' }}
                 >
                     <BlurView intensity={60} tint="dark" style={StyleSheet.absoluteFill} />
                     <View pointerEvents="none" className="absolute inset-0 bg-[rgba(10,12,18,0.9)]" />
@@ -150,6 +165,11 @@ export default function ShareSheet({ visible, postId, currentUserId, onClose }: 
                             autoCorrect={false}
                             className="ml-2 flex-1 py-2.5 text-[14px] text-white"
                         />
+                        {query.length > 0 && (
+                            <Pressable onPress={() => setQuery('')} hitSlop={10} accessibilityLabel="Clear search">
+                                <Ionicons name="close-circle" size={16} color={COLORS.muted} />
+                            </Pressable>
+                        )}
                     </View>
 
                     <View className="flex-1">
@@ -174,6 +194,7 @@ export default function ShareSheet({ visible, postId, currentUserId, onClose }: 
                                 showsVerticalScrollIndicator={false}
                                 initialNumToRender={12}
                                 windowSize={7}
+                                contentContainerStyle={{ paddingVertical: 4 }}
                                 ListEmptyComponent={
                                     <Text className="mt-10 text-center text-sm text-white/60">No people found</Text>
                                 }
@@ -188,7 +209,8 @@ export default function ShareSheet({ visible, postId, currentUserId, onClose }: 
                         <Pressable
                             onPress={send}
                             disabled={selected.size === 0 || sending}
-                            className={`items-center rounded-2xl py-3 ${selected.size === 0 || sending ? 'bg-white/10' : 'bg-white'
+                            style={({ pressed }) => ({ transform: [{ scale: pressed ? 0.98 : 1 }] })}
+                            className={`items-center rounded-2xl py-3.5 ${selected.size === 0 || sending ? 'bg-white/10' : 'bg-white'
                                 }`}
                         >
                             {sending ? (

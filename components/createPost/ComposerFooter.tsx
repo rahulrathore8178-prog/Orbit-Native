@@ -44,7 +44,8 @@ export function ComposerFooter({
     else onWebGallery?.();
   }, [cam, isNative, onWebGallery]);
 
-  const openCamera = useCallback(() => cam.open(), [cam]);
+  const openCamera = useCallback(() => cam.open({ mode: 'photo' }), [cam]);
+  const openVideoCamera = useCallback(() => cam.open({ mode: 'video' }), [cam]);
 
   return (
     <View style={styles.footer}>
@@ -52,7 +53,7 @@ export function ComposerFooter({
 
       <NeoIconButton Icon={ImageIcon} label="Add photo or video" onPress={openGallery} size={size} />
       {isNative && <NeoIconButton Icon={Camera} label="Take a photo" onPress={openCamera} size={size} />}
-      {isNative && <NeoIconButton Icon={Video} label="Record a video (hold the shutter)" onPress={openCamera} size={size} />}
+      {isNative && <NeoIconButton Icon={Video} label="Record a video (hold the shutter)" onPress={openVideoCamera} size={size} />}
       <NeoIconButton
         Icon={micActive ? Square : Mic}
         label={micActive ? 'Stop recording' : 'Voice note (coming soon)'}

@@ -1,7 +1,9 @@
 import * as MediaLibrary from 'expo-media-library/legacy';
+import * as ImagePicker from 'expo-image-picker';
 import React, { useCallback, useState } from 'react';
 import { Modal, NativeModules, Platform } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { VIDEO_MAX_SECONDS } from '../../constants/createPost/constants';
 import type { PickedMedia } from '../../constants/createPost/types'; // adjust path
 import { prepareMedia } from '../services/createPost/compressMedia'; // adjust path
 import { MediaEditor } from './MediaViewer';
@@ -23,12 +25,49 @@ type Pending = { media: PickedMedia; fromCamera: boolean };
 export function useAppCamera(onMedia: (m: PickedMedia) => void) {
   const [pending, setPending] = useState<Pending | null>(null);
 
-  const open = useCallback(async (opts?: { gallery?: boolean }) => {
-    if (Platform.OS !== 'android' || !Native) {
-      console.warn('Native camera missing: Android only, and needs a rebuilt dev client');
+  const open = useCallback(async (opts?: { gallery?: boolean; mode?: 'photo' | 'video' }) => {
+    if (Platform.OS !== 'android') {
+      console.warn('Native camera is only available on Android');
       return;
     }
+
     try {
+      if (!Native) {
+        const permission = opts?.gallery
+          ? await ImagePicker.requestMediaLibraryPermissionsAsync()
+          : await ImagePicker.requestCameraPermissionsAsync();
+        if (!permission.granted) {
+          console.warn(opts?.gallery ? 'Gallery permission denied' : 'Camera permission denied');
+          return;
+        }
+
+        const result = opts?.gallery
+          ? await ImagePicker.launchImageLibraryAsync({
+              mediaTypes: ['images', 'videos'],
+              allowsEditing: false,
+              quality: 0.9,
+            })
+          : await ImagePicker.launchCameraAsync({
+              mediaTypes: opts?.mode === 'video' ? ['videos'] : ['images'],
+              videoMaxDuration: VIDEO_MAX_SECONDS,
+              allowsEditing: false,
+              quality: 0.9,
+            });
+
+        const asset = result.canceled ? undefined : result.assets[0];
+        if (!asset) return;
+        setPending({
+          fromCamera: !opts?.gallery,
+          media: {
+            kind: asset.type === 'video' ? 'video' : 'image',
+            uri: asset.uri,
+            name: asset.fileName ?? `capture.${asset.type === 'video' ? 'mp4' : 'jpg'}`,
+            mime: asset.mimeType ?? (asset.type === 'video' ? 'video/mp4' : 'image/jpeg'),
+          },
+        });
+        return;
+      }
+
       const r = await Native.open({ gallery: !!opts?.gallery });
       if (!r) return; // user cancelled
       setPending({
@@ -38,7 +77,9 @@ export function useAppCamera(onMedia: (m: PickedMedia) => void) {
           width: r.width, height: r.height, duration: r.duration,
         } as PickedMedia,
       });
-    } catch (e) { console.warn('camera failed', e); }
+    } catch (e) {
+      console.warn('camera failed', e);
+    }
   }, []);
 
   const close = useCallback(() => setPending(null), []);

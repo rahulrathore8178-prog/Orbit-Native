@@ -3,7 +3,7 @@ import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { memo, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { Image, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
     Easing,
@@ -63,28 +63,68 @@ export type Recipient = {
     _id: string;
     username: string;
     profilePic?: string;
+    profilePicture?: string;
     [k: string]: any;
 };
 
+/**
+ * Every url worth trying for this user, best first.
+ * Covers string / { url } / { secure_url } shapes, protocol-relative urls and relative paths.
+ */
+function avatarCandidates(u: Recipient): string[] {
+    const out: string[] = [];
+    const push = (v?: string) => {
+        if (v && !out.includes(v)) out.push(v);
+    };
+
+    const addValue = (raw: any) => {
+        const str: string | undefined =
+            typeof raw === 'string'
+                ? raw
+                : raw?.url ?? raw?.secure_url ?? raw?.uri ?? raw?.path ?? undefined;
+        if (!str || !str.trim()) return;
+
+        push(resolveImageUri(str));
+
+        const t = str.trim();
+        if (/^https?:\/\//i.test(t)) push(t);
+        else if (t.startsWith('//')) push(`https:${t}`);
+        else push(`${String(API_URL).replace(/\/$/, '')}/${t.replace(/^\//, '')}`);
+    };
+
+    // Friend responses are not consistent across API versions: the photo may
+    // be on the friend, user, or profile object.
+    for (const source of [u, u.user, u.friend, u.profile]) {
+        if (!source) continue;
+        for (const key of ['profilePic', 'profilePicture', 'avatar', 'image', 'photo']) {
+            addValue(source[key]);
+        }
+    }
+
+    return out;
+}
+
 export function resolveAvatar(u: Recipient): string | undefined {
-    const raw: any = u.profilePic ?? u.profilePicture ?? u.avatar ?? u.image ?? u.photo;
-    return resolveImageUri(typeof raw === 'string' ? raw : raw?.url);
+    return avatarCandidates(u)[0];
 }
 
 export const Avatar = memo(function Avatar({ user, size }: { user: Recipient; size: number }) {
-    const [failed, setFailed] = useState(false);
-    const uri = resolveAvatar(user);
+    const candidates = useMemo(() => avatarCandidates(user), [user]);
+    const key = candidates.join('|');
+    const [idx, setIdx] = useState(0);
+    const opacity = useSharedValue(0);
+
+    // new user / new urls -> start over
+    useEffect(() => {
+        setIdx(0);
+        opacity.value = 0;
+    }, [key, opacity]);
+
+    const fade = useAnimatedStyle(() => ({ opacity: opacity.value }));
+    const uri = candidates[idx];
     const r = size / 2;
-    if (uri && !failed) {
-        return (
-            <Image
-                source={{ uri }}
-                onError={() => setFailed(true)}
-                style={{ width: size, height: size, borderRadius: r, backgroundColor: 'rgba(255,255,255,0.1)' }}
-            />
-        );
-    }
-    return (
+
+    const initial = (
         <View
             style={{
                 width: size,
@@ -100,6 +140,37 @@ export const Avatar = memo(function Avatar({ user, size }: { user: Recipient; si
             <Text style={{ color: '#fff', fontWeight: '700', fontSize: size * 0.4 }}>
                 {(user.username || '?').charAt(0).toUpperCase()}
             </Text>
+        </View>
+    );
+
+    if (!uri) return initial;
+
+    return (
+        <View style={{ width: size, height: size, borderRadius: r }}>
+            {/* initial sits underneath while the photo loads, then the photo fades over it */}
+            <View style={StyleSheet.absoluteFill}>{initial}</View>
+            <Animated.Image
+                key={uri}
+                source={{ uri }}
+                onLoad={() => {
+                    opacity.value = withTiming(1, { duration: 180 });
+                }}
+                onError={() => {
+                    if (__DEV__) console.warn('[Avatar] failed to load', uri);
+                    setIdx((i) => i + 1);
+                }}
+                style={[
+                    {
+                        width: size,
+                        height: size,
+                        borderRadius: r,
+                        borderWidth: 1,
+                        borderColor: 'rgba(255,255,255,0.22)',
+                        backgroundColor: 'rgba(255,255,255,0.08)',
+                    },
+                    fade,
+                ]}
+            />
         </View>
     );
 });
@@ -131,6 +202,13 @@ const S = {
     fingerX: makeMutable(0),
     fingerY: makeMutable(0),
     scrollY: makeMutable(0),
+    /**
+     * Edge auto-scroll stays OFF until the finger has actually travelled into the
+     * middle of the list. Without this, the finger (which starts just below the list,
+     * on the share button) is already inside the "bottom edge" zone when the list opens
+     * and the list would run straight to the last contact.
+     */
+    armed: makeMutable(false),
 };
 
 /** Height of the visible window for n friends (shows half a row extra when scrollable, as a hint). */
@@ -147,6 +225,10 @@ function computeHover() {
     const vp = vpHeight(n);
     const relY = S.fingerY.value - (S.top.value + PAD);
     const inX = S.fingerX.value > S.left.value - SIDE_SLACK && S.fingerX.value < S.left.value + LIST_W + SIDE_SLACK;
+
+    // arm edge scrolling once the finger has been in the calm middle of the list
+    if (!S.armed.value && inX && relY >= EDGE && relY <= vp - EDGE) S.armed.value = true;
+
     let idx = -1;
     if (inX && relY >= 0 && relY < vp) {
         idx = Math.floor((relY + S.scrollY.value) / ITEM_H);
@@ -163,7 +245,7 @@ export async function fetchRecipients(currentUserId?: string): Promise<Recipient
         .map((f) => {
             const u = f?.user ?? f;
             const _id = typeof u === 'string' ? u : u?._id ?? u?.id ?? '';
-            return { ...(typeof u === 'object' ? u : {}), _id: String(_id), username: u?.username ?? '', profilePic: u?.profilePic } as Recipient;
+            return { ...(typeof u === 'object' ? u : {}), _id: String(_id), username: u?.username ?? '' } as Recipient;
         })
         .filter((u) => u._id && u._id !== currentUserId);
 }
@@ -194,9 +276,16 @@ export function showShareToast(text = 'Shared', sub?: string, ok = true) {
 async function sendTo(friend: Recipient, postId: string) {
     try {
         await sharePostToContact(friend._id, postId);
-        showToast({ title: 'Shared', subtitle: `to ${friend.username}`, avatar: friend.profilePic, variant: 'success' });
+        if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        showToast({
+            title: 'Shared',
+            subtitle: `to ${friend.username}`,
+            avatar: resolveAvatar(friend) ?? friend.profilePic,
+            variant: 'success',
+        });
     } catch (e: any) {
         console.error('Quick share error:', e?.response?.status, e?.response?.data ?? e);
+        if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         showToast({ title: "Couldn't send", subtitle: 'Try again', variant: 'error' });
     }
 }
@@ -247,6 +336,7 @@ export function ShareHoldButton({ postId, onPress, children, className, accessib
                     S.top.value = Math.max(S.safeTop.value + 8, m.pageY - GAP - (vp + PAD * 2));
                     S.scrollY.value = 0;
                     S.hover.value = -1;
+                    S.armed.value = false; // no auto-scroll until the finger really moves into the list
                     S.fingerX.value = e.absoluteX;
                     S.fingerY.value = e.absoluteY;
                     active.value = true;
@@ -265,6 +355,7 @@ export function ShareHoldButton({ postId, onPress, children, className, accessib
                     if (!active.value) return;
                     active.value = false;
                     S.open.value = false;
+                    S.armed.value = false;
                     const idx = S.hover.value;
                     S.progress.value = withTiming(0, { duration: 200, easing: Easing.out(Easing.cubic) }, (fin) => {
                         if (fin) S.hover.value = -1;
@@ -328,7 +419,7 @@ const Row = memo(function Row({ user, index }: { user: Recipient; index: number 
             ]}
         >
             <Animated.View style={avatarStyle}>
-                <Avatar user={user} size={40} />
+                <Avatar user={user} size={42} />
             </Animated.View>
             <Text numberOfLines={1} style={{ flex: 1, marginLeft: 12, color: '#fff', fontSize: 15, fontWeight: '600' }}>
                 {user.username}
@@ -363,10 +454,11 @@ export function ShareQuickHost({ currentUserId }: { currentUserId?: string }) {
         },
     );
 
-    // auto-scroll while the finger rests near the top/bottom edge of the list
+    // auto-scroll while the finger rests near the top/bottom edge of the list —
+    // only once the user has panned into the list (armed), never on open.
     useFrameCallback((frame) => {
         'worklet';
-        if (!S.open.value) return;
+        if (!S.open.value || !S.armed.value) return;
         const n = S.count.value;
         if (n <= VISIBLE) return;
         const h = vpHeight(n);
@@ -378,8 +470,11 @@ export function ShareQuickHost({ currentUserId }: { currentUserId?: string }) {
         if (relY < EDGE && relY > -EDGE_OUT) v = -Math.min(1, (EDGE - relY) / EDGE);
         else if (relY > h - EDGE && relY < h + EDGE_OUT) v = Math.min(1, (relY - (h - EDGE)) / EDGE);
         if (v === 0) return;
-        const dt = frame.timeSincePreviousFrame ?? 16;
-        const next = Math.min(maxScroll, Math.max(0, S.scrollY.value + (v * SCROLL_SPEED * dt) / 1000));
+        // smoothstep: gentle near the edge boundary, quick at the very edge
+        const a = Math.abs(v);
+        const eased = a * a * (3 - 2 * a);
+        const dt = Math.min(frame.timeSincePreviousFrame ?? 16, 48);
+        const next = Math.min(maxScroll, Math.max(0, S.scrollY.value + (Math.sign(v) * eased * SCROLL_SPEED * dt) / 1000));
         if (next !== S.scrollY.value) {
             S.scrollY.value = next;
             computeHover();

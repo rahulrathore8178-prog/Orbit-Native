@@ -34,10 +34,10 @@ export default function TabLayout() {
           }}
         />
         <Tabs.Screen
-          name="search"
+          name="Flares"
           options={{
-            title: 'Search',
-            tabBarIcon: ({ color }) => <Search size={23} color={color} />,
+            title: 'Flares',
+            tabBarIcon: ({ color }) => <FlareIcon size={30} color={color} />,
           }}
         />
         <Tabs.Screen
@@ -48,13 +48,13 @@ export default function TabLayout() {
           }}
         />
         <Tabs.Screen
-          name="Flares"
+          name="search"
           options={{
-            title: 'Flares',
-            tabBarIcon: ({ color }) => <FlareIcon size={30} color={color} />,
+            title: 'Search',
+            tabBarIcon: ({ color }) => <Search size={23} color={color} />,
           }}
         />
-        <Tabs.Screen
+        {/* <Tabs.Screen
           name="profile"
           options={{
             title: 'Profile',
@@ -62,7 +62,7 @@ export default function TabLayout() {
             headerTitleAlign: 'center',
             tabBarIcon: ({ color }) => <ChartArea size={23} color={color} />,
           }}
-        />
+        /> */}
       </Tabs>
       <HomeDrawerHost />
     </DrawerProvider>
