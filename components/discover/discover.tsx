@@ -1,11 +1,11 @@
 // app/discover.tsx
 import { RootState, useAppDispatch } from "@/redux/store";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import React from "react";
 import { ActivityIndicator, FlatList, Pressable, Text, View } from "react-native";
 import { useSelector } from "react-redux";
 import { API_URL } from "../../lib/utils";
+import { authStorage } from "@/lib/auth/authStorage";
 // import { AppDispatch, RootState } from "../store/store";
 // import { discoverNearbyUsers } from "../store/discoverSlice";
 // import { NearbyUser } from "../types/discover";
@@ -43,7 +43,7 @@ export default function DiscoverScreen() {
     coords: Coordinates,
   ): Promise<DiscoverResponse> {
     try {
-      const token = await AsyncStorage.getItem('user');
+      const token = await authStorage.getToken();
       const response = await axios.get(`${API_URL}/api/chat/${coords}`, {
         withCredentials: true,
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,

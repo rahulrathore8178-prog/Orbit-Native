@@ -25,15 +25,19 @@
         "android.permission.BLUETOOTH_CONNECT",
         "android.permission.WAKE_LOCK",
         "android.permission.BLUETOOTH",
-        "android.permission.MODIFY_AUDIO_SETTINGS"
+        "android.permission.POST_NOTIFICATIONS"
       ]
     },
     "ios": {
       "bundleIdentifier": "com.orbit.app",
       "supportsTablet": true,
+      "entitlements": {
+        "aps-environment": "production"
+      },
       "infoPlist": {
         "UIBackgroundModes": [
-          "audio"
+          "audio",
+          "remote-notification"
         ],
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true,
@@ -68,12 +72,8 @@
           }
         }
       ],
-      [
-        "expo-notifications",
-        {
-          "color": "#6D8BFF"
-        }
-      ],
+      "@react-native-firebase/app",
+      "@react-native-firebase/messaging",
       "expo-system-ui",
       [
         "expo-location",
@@ -107,7 +107,6 @@
           "isAccessMediaLocationEnabled": true
         }
       ],
-      "expo-video",
       [
         "expo-audio",
         {
@@ -121,6 +120,9 @@
       [
         "expo-build-properties",
         {
+          "ios": {
+            "useFrameworks": "static"
+          },
           "android": {
             "enableProguardInReleaseBuilds": false,
             "enableShrinkResourcesInReleaseBuilds": false,

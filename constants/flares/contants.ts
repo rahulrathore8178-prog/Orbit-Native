@@ -1,0 +1,9 @@
+export const TAB_BAR_HEIGHT = 70; // FloatingTabBar BAR_HEIGHT
+export const TAB_BAR_MIN_BOTTOM = 18; // Math.max(insets.bottom, 18)
+export const ACTIONS_GAP = 14;
+export const HEADER_HEIGHT = 52;
+export const TOP_UI_HEIGHT = 112; // author row + controls row
+export const ACTIONS_ROW_HEIGHT = 56;
+export const FILL_TOLERANCE = 0.28; // how close to screen ratio before we "cover"
+export const LIKE_COLOR = '#fb7185';
+export const SAVED_COLOR = '#F3E7D0';

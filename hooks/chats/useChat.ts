@@ -57,8 +57,8 @@ const isTransient = (e: any) => {
   const status = e?.response?.status
   return !status || status === 502 || status === 503 || status === 504
 }
-const getToken = async (): Promise<string | null> =>
-  (await authStorage.getToken()) ?? (await AsyncStorage.getItem('user')) ?? (await AsyncStorage.getItem('token'))
+const getToken = (): Promise<string | null> => authStorage.getToken()
+
 const authHeaders = async () => {
   const t = await getToken()
   return t ? { Authorization: `Bearer ${t}` } : {}

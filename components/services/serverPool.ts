@@ -5,7 +5,10 @@ import { AppState } from 'react-native';
 export type PoolServer = { id: string; url: string };
 export type FailKind = 'full' | 'down';
 
+const envUrl = (process.env.EXPO_PUBLIC_API_URL ?? '').trim().replace(/\/+$/, '');
+
 export const POOL: PoolServer[] = [
+    ...(envUrl ? [{ id: 'env', url: envUrl }] : []),
     { id: 's1', url: 'https://orb8-0kmr.onrender.com' },
     { id: 's2', url: 'https://orb8-6bfm.onrender.com' },
     { id: 's3', url: 'https://orb8-oeih.onrender.com' },
@@ -24,8 +27,8 @@ export const ALL_DOWN_MESSAGE = 'Our servers are busy right now. Please try agai
 const rawFetch: typeof fetch = globalThis.fetch.bind(globalThis);
 const ACTIVE_SERVER_KEY = '@orbit/active-server';
 
-const envUrl = (process.env.EXPO_PUBLIC_API_URL ?? '').trim().replace(/\/+$/, '');
-let active: PoolServer = POOL.find((s) => s.url === envUrl) ?? { id: 'env', url: envUrl || POOL[0].url };
+// let active: PoolServer = POOL.find((s) => s.url === envUrl) ?? { id: 'env', url: envUrl || POOL[0].url };
+let active: PoolServer = POOL[0];
 
 const listeners = new Set<(s: PoolServer) => void>();
 export const subscribe = (fn: (s: PoolServer) => void) => {
@@ -52,7 +55,7 @@ export function setActiveById(id: string) {
 }
 
 async function restoreActive() {
-    if (!FAILOVER_ENABLED) return;
+    if (!FAILOVER_ENABLED || envUrl) return;
     try {
         const id = await AsyncStorage.getItem(ACTIVE_SERVER_KEY);
         const stored = POOL.find((s) => s.id === id);

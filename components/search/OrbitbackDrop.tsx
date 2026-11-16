@@ -12,7 +12,6 @@ import Animated, {
     withRepeat,
     withTiming,
 } from "react-native-reanimated";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const RING_SIZES = [52, 84, 122]; // % of the shorter screen side
 

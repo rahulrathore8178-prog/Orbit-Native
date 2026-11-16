@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import * as Haptics from 'expo-haptics';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, PanResponder, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import * as Haptics from 'expo-haptics';
 
 const BAR_HEIGHT = 70;
 const BORDER = 1;
@@ -22,6 +22,8 @@ const SPRING = { useNativeDriver: true, damping: 18, stiffness: 220, mass: 0.8 }
 
 export function FloatingTabBar(props: any) {
     const { state, descriptors, emitter, navigateToTab } = props;
+    const activeOptions = descriptors[state.routes[state.index].key]?.options;
+    const hidden = activeOptions?.tabBarStyle?.display === 'none';
     const { width } = useWindowDimensions();
     const insets = useSafeAreaInsets();
 
@@ -40,6 +42,12 @@ export function FloatingTabBar(props: any) {
     const scale = useRef(new Animated.Value(1)).current;
     const glow = useRef(new Animated.Value(0)).current;
     const scaleY = scale.interpolate({ inputRange: [1, PRESS_SCALE], outputRange: [1, 1.07] });
+
+    // slides down + fades out when a screen asks for the bar to be hidden (e.g. the flare viewer)
+    const showAnim = useRef(new Animated.Value(hidden ? 0 : 1)).current;
+    useEffect(() => {
+        Animated.timing(showAnim, { toValue: hidden ? 0 : 1, duration: 220, useNativeDriver: true }).start();
+    }, [hidden, showAnim]);
 
     // which tab the bubble is currently over while dragging (null = not dragging)
     const [hoverIndex, setHoverIndex] = useState<number | null>(null);
@@ -167,14 +175,17 @@ export function FloatingTabBar(props: any) {
     const shownIndex = hoverIndex ?? pending ?? state.index;
 
     return (
-        <View
-            pointerEvents="box-none"
+        <Animated.View
+            // while hidden the invisible bar must not catch touches meant for the screen underneath
+            pointerEvents={hidden ? 'none' : 'box-none'}
             style={{
                 position: 'absolute',
                 left: 0,
                 right: 0,
                 bottom: Math.max(insets.bottom, 18),
                 alignItems: 'center',
+                opacity: showAnim,
+                transform: [{ translateY: showAnim.interpolate({ inputRange: [0, 1], outputRange: [40, 0] }) }],
             }}
         >
             <View
@@ -244,6 +255,6 @@ export function FloatingTabBar(props: any) {
                     );
                 })}
             </View>
-        </View>
+        </Animated.View>
     );
 }

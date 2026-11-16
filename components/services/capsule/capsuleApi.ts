@@ -1,5 +1,4 @@
 import { API_URL } from '@/lib/utils';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import type { Capsule, CapsuleComment, CapsuleFeed, CapsuleGroup, CapsuleUser } from '../../../constants/capsule/types';
 import { authStorage } from '@/lib/auth/authStorage';
@@ -41,8 +40,7 @@ const idOf = (v: any): string =>
   String(v && typeof v === 'object' ? (v._id ?? v.id ?? v.user?._id ?? v.user) : v);
 
 async function getMe(): Promise<CapsuleUser> {
-  const raw = await AsyncStorage.getItem('user');
-  const u = raw ? JSON.parse(raw) : {};
+  const u = (await authStorage.getUser()) ?? {};
   // console.log('[capsules] getMe', u);
   // console.log('[capsules raw]', raw);
   return {

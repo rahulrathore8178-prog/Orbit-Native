@@ -15,12 +15,13 @@ import { useSelector } from 'react-redux'
 export default function MessagesTab() {
   const dispatch = useAppDispatch()
   const friends = useSelector((state: RootState) => state.friends.friends)
+  const activeAccountId = useSelector((state: RootState) => state.auth.activeAccountId)
   const { toast, showToast } = useToast()
   const { conversations, refreshing, refresh, markOpened } = useConversations()
 
   useEffect(() => {
-    dispatch(fetchFriends())
-  }, [dispatch])
+    dispatch(fetchFriends(activeAccountId ?? undefined))
+  }, [dispatch, activeAccountId])
 
   useFocusEffect(
   useCallback(() => {

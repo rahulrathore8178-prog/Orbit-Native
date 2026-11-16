@@ -1,4 +1,5 @@
 import { registerView } from './useHomeFeed';
+import { viewedIds } from './viewedStore';
 import { useCallback, useEffect, useRef } from 'react';
 import { AppState, View, useWindowDimensions } from 'react-native';
 
@@ -22,7 +23,7 @@ export function usePostViews({ enabled, safeTop, safeBottom, isViewed }: Options
 
     const nodes = useRef(new Map<string, View>());
     const timers = useRef(new Map<string, { timer: ReturnType<typeof setInterval>; ms: number }>());
-    const done = useRef(new Set<string>()); // counted or in flight this session
+    const done = useRef(viewedIds); // counted or in flight this session (shared with flares)
 
     const opts = useRef({ enabled, top: safeTop, bottom: height - safeBottom, width, isViewed });
     useEffect(() => {

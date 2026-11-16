@@ -22,8 +22,8 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { API_URL } from '../../lib/utils';
-import { getAuthHeaders } from '../services/feed/postUtils';
 import { sharePostToContact } from '../services/chat/sharePost';
+import { getAuthHeaders } from '../services/feed/postUtils';
 import { GlassToastHost, resolveImageUri, showToast } from '../ui/GlassToast';
 
 /* ------------------------------------------------------------------ */

@@ -1,5 +1,4 @@
 import { authStorage } from '@/lib/auth/authStorage'
-import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useEffect, useState } from 'react'
 import { useSelector } from 'react-redux'
 
@@ -35,16 +34,20 @@ const userIdFromToken = (token?: string | null): string | undefined => {
 
 export function useMyUserId(): string | undefined {
     const reduxUserId = useSelector((s: any) => s.dashboard?.currentUser?.id ?? s.auth?.user?._id ?? s.auth?.user?.id)
-    const [storedUserId, setStoredUserId] = useState<string | null>(null)
+    const activeAccountId = useSelector((s: any) => s.auth?.activeAccountId)
+    const [tokenUserId, setTokenUserId] = useState<string | null>(null)
 
     useEffect(() => {
+        let alive = true
+        const accountAtStart = activeAccountId
         ; (async () => {
-            const saved = await AsyncStorage.getItem('userId')
-            if (saved) return setStoredUserId(saved)
             const fromToken = userIdFromToken(await authStorage.getToken())
-            if (fromToken) setStoredUserId(fromToken)
+            if (alive && accountAtStart === authStorage.getActiveIdSync()) {
+                setTokenUserId(fromToken ?? null)
+            }
         })()
-    }, [])
+        return () => { alive = false }
+    }, [activeAccountId])
 
-    return reduxUserId ? String(reduxUserId) : storedUserId ?? undefined
+    return reduxUserId ? String(reduxUserId) : tokenUserId ?? undefined
 }

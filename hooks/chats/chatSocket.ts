@@ -24,8 +24,7 @@ let closedByUs = true
 const toWsUrl = (url?: string) => (url ?? '').replace(/^http/i, 'ws').replace(/\/+$/, '')
 const currentWsUrl = () => (FAILOVER_ENABLED ? getWsUrl() : wsUrl)
 
-const getToken = async (): Promise<string | null> =>
-    (await authStorage.getToken()) ?? (await AsyncStorage.getItem('user')) ?? (await AsyncStorage.getItem('token'))
+const getToken = (): Promise<string | null> => authStorage.getToken()
 
 const setConnected = (value: boolean, reconnected = false) => {
     connected = value

@@ -1,7 +1,7 @@
 import { API_URL } from "@/lib/utils";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 import axios from "axios";
+import { authStorage } from "@/lib/auth/authStorage";
 
 export interface Friend {
     _id: string;
@@ -21,11 +21,15 @@ interface ThunkConfig {
     rejectValue: { message: string };
 }
 
-export const fetchFriends = createAsyncThunk<Friends, void, ThunkConfig>(
+export const fetchFriends = createAsyncThunk<Friends, string | undefined, ThunkConfig>(
     'friends/fetchFriends',
-    async (_, thunkAPI) => {
+    async (requestedAccountId, thunkAPI) => {
         try {
-            const token = await AsyncStorage.getItem('user');
+            const accountId = requestedAccountId ?? authStorage.getActiveIdSync();
+            const token = await authStorage.getToken();
+            if (accountId !== authStorage.getActiveIdSync()) {
+                return thunkAPI.rejectWithValue({ message: 'Account changed.' });
+            }
             const response = await axios.get<{ friends: Friends }>(
                 `${API_URL}/api/social/friends`,
                 {
@@ -34,6 +38,9 @@ export const fetchFriends = createAsyncThunk<Friends, void, ThunkConfig>(
                 }
             );
 
+            if (accountId !== authStorage.getActiveIdSync()) {
+                return thunkAPI.rejectWithValue({ message: 'Account changed.' });
+            }
             console.log('friends', response.data?.friends);
             return response.data.friends ?? [];
         } catch (error: any) {
@@ -72,6 +79,7 @@ const friendsSlice = createSlice({
             state.friends = action.payload; // ✅ API response stored here
         })
         .addCase(fetchFriends.rejected, (state, action) => {
+            if (action.payload?.message === 'Account changed.') return;
             state.isLoading = false;
             state.error = action.payload ? (action.payload as { message: string }).message : 'Unknown error';
         });

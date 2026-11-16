@@ -1,27 +1,16 @@
 import { GlassPanel } from '@/components/ui/neo';
-import { useOpenProfile } from '@/hooks/useOpenProfile';
-import { useOnScreen, useVideoViewport } from '@/hooks/postCard/useVideoViewPort';
+import { usePostActions } from '@/hooks/feed/usePostActions';
 import { useGlobalMuted } from '@/hooks/postCard/globalMute';
-import {
-    buildWaveform,
-    clampAspectRatio,
-    formatCount,
-    formatDuration,
-    formatTimeAgo,
-    getAuthHeaders,
-    hashSeed,
-    withHost,
-    type PostAuthor,
-    type PostcardProps,
-} from '../services/feed/postUtils';
+import { useOnScreen, useVideoViewport } from '@/hooks/postCard/useVideoViewPort';
+import { useOpenProfile } from '@/hooks/useOpenProfile';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import axios from 'axios';
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useIsFocused } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
+import { Archive, Pencil, Trash2 } from 'lucide-react-native';
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -37,16 +26,27 @@ import {
     useWindowDimensions,
     View,
 } from 'react-native';
-import { Archive, Pencil, Trash2 } from 'lucide-react-native';
-import ActionSheet, { SheetAction } from '../ui/ActionSheet';
 import { API_URL, getDisplayImageUrl } from '../../lib/utils';
 import ConfirmSheet from '../profile/ConfirmSheet';
+import {
+    buildWaveform,
+    clampAspectRatio,
+    formatCount,
+    formatDuration,
+    formatTimeAgo,
+    hashSeed,
+    withHost,
+    type PostAuthor,
+    type PostcardProps
+} from '../services/feed/postUtils';
+import ActionSheet, { SheetAction } from '../ui/ActionSheet';
 import { ShareHoldButton } from './ShareQuick';
 
 /* ------------------------------ types --------------------------------- */
 
 export type SharedPostcardProps = Omit<PostcardProps, 'onPressComments' | 'onClickShare'> & {
-    /** Trash button. Pass true only for the owner's posts on their own profile. */
+    /** Trash but
+     * ton. Pass true only for the owner's posts on their own profile. */
     showDelete?: boolean;
     /** Don't navigate when the header is tapped (e.g. you're already on that profile). */
     disableAuthorPress?: boolean;
@@ -62,6 +62,7 @@ export type SharedPostcardProps = Omit<PostcardProps, 'onPressComments' | 'onCli
     onEditCaption?: (id: string, content: string) => Promise<void>;
     showViews?: boolean;
     views?: number;
+    onOpenFlare?: (id: string) => void;
 };
 
 /* ------------------------------ constants ----------------------------- */
@@ -278,6 +279,7 @@ const VideoMedia = ({
     onLike,
     onLongPress,
     heart,
+    onOpen
 }: {
     uri: string;
     isVisible: boolean;
@@ -285,6 +287,7 @@ const VideoMedia = ({
     onLike: () => void;
     onLongPress?: () => void;
     heart: React.ReactNode;
+    onOpen?: () => void;
 }) => {
     const isFocused = useIsFocused();
     const [muted, setMuted] = useGlobalMuted(); // one switch for every video in the app
@@ -300,7 +303,7 @@ const VideoMedia = ({
         safe(() => (player.playing ? player.pause() : player.play()));
     }, [player]);
 
-    const onTap = useDoubleTap(togglePlay, onLike);
+    const onTap = useDoubleTap(onOpen ?? togglePlay, onLike);
 
     useEffect(() => { safe(() => { player.muted = muted; }); }, [player, muted]);
 
@@ -441,6 +444,7 @@ const ImageMedia = ({
     onRatio,
     onLongPress,
     heart,
+    onOpen
 }: {
     uri: string;
     box: MediaBox;
@@ -448,8 +452,9 @@ const ImageMedia = ({
     onRatio?: (ratio: number) => void;
     onLongPress?: () => void;
     heart: React.ReactNode;
+    onOpen?: () => void;
 }) => {
-    const onTap = useDoubleTap(() => { }, onLike);
+    const onTap = useDoubleTap(onOpen ?? (() => { }), onLike);
     return (
         <Pressable onPress={onTap} onLongPress={onLongPress} delayLongPress={350} className="self-center overflow-hidden rounded-[22px] bg-black/30" style={box}>
             <Image
@@ -612,6 +617,7 @@ const Postcard = ({
     onEditCaption,
     showViews = false,
     views = 0,
+    onOpenFlare
 }: SharedPostcardProps) => {
     const { width: screenWidth, height: screenHeight } = useWindowDimensions();
 
@@ -639,83 +645,32 @@ const Postcard = ({
         try { LayoutAnimation.configureNext(LayoutAnimation.create(220, 'easeInEaseOut', 'opacity')); } catch { /* not supported */ }
     };
 
-    /* ---- like ---- */
-    const [liked, setLiked] = useState(isLikedByCurrentUser);
-    const [likeCount, setLikeCount] = useState(likesCount);
-    useEffect(() => setLiked(isLikedByCurrentUser), [isLikedByCurrentUser]);
-    useEffect(() => setLikeCount(likesCount), [likesCount]);
+    /* ---- like, save ---- */
+const { liked, likeCount, saved,  commentsCount: commentsTotal, like, toggleSave: toggleSaved } = usePostActions({
+    id, isLikedByCurrentUser, likesCount, isSaved, commentsCount,
+});
+const heartScale = useRef(new Animated.Value(1)).current;
+const { play: playHeart, heart } = useHeartBurst();
 
-    const heartScale = useRef(new Animated.Value(1)).current;
-    const likeInFlight = useRef(false);
-    const { play: playHeart, heart } = useHeartBurst();
+const bounce = useCallback(() => {
+    Animated.sequence([
+        Animated.timing(heartScale, { toValue: 1.25, duration: 90, useNativeDriver: true }),
+        Animated.spring(heartScale, { toValue: 1, useNativeDriver: true, friction: 4 }),
+    ]).start();
+}, [heartScale]);
 
-    const sendLike = useCallback(
-        async (forceLike = false) => {
-            if (likeInFlight.current) return;
-            if (forceLike && liked) return; // double tap never unlikes
+const onLikePress = useCallback(() => {
+    if (!liked && Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    bounce();
+    like(false);
+}, [liked, like, bounce]);
 
-            likeInFlight.current = true;
-            const next = !liked;
-            setLiked(next);
-            setLikeCount((c) => c + (next ? 1 : -1));
-            Animated.sequence([
-                Animated.timing(heartScale, { toValue: 1.25, duration: 90, useNativeDriver: true }),
-                Animated.spring(heartScale, { toValue: 1, useNativeDriver: true, friction: 4 }),
-            ]).start();
-
-            try {
-                await axios.post(`${API_URL}/api/community/posts/${id}/like`, {}, {
-                    withCredentials: true,
-                    headers: await getAuthHeaders(),
-                });
-            } catch (error) {
-                console.error('Like error:', error);
-                setLiked(!next);
-                setLikeCount((c) => c + (next ? -1 : 1));
-            } finally {
-                likeInFlight.current = false;
-            }
-        },
-        [liked, id, heartScale],
-    );
-
-    const onLikePress = useCallback(() => {
-        if (!liked && Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        sendLike(false);
-    }, [liked, sendLike]);
-
-    const onDoubleTapLike = useCallback(() => {
-        playHeart();
-        if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        sendLike(true);
-    }, [playHeart, sendLike]);
-
-    /* ---- save (POST /saved/:postId to save, DELETE to unsave) ---- */
-    const [saved, setSaved] = useState(isSaved);
-    const saveInFlight = useRef(false);
-    useEffect(() => setSaved(isSaved), [isSaved]);
-
-    const toggleSaved = useCallback(async () => {
-        if (saveInFlight.current) return;
-        saveInFlight.current = true;
-        const next = !saved;
-        setSaved(next);
-        if (Platform.OS !== 'web') Haptics.selectionAsync();
-
-        try {
-            await axios({
-                method: next ? 'post' : 'delete',
-                url: `${API_URL}/api/community/saved/${id}`,
-                withCredentials: true,
-                headers: await getAuthHeaders(),
-            });
-        } catch (error) {
-            console.error('Save post error:', error);
-            setSaved(!next);
-        } finally {
-            saveInFlight.current = false;
-        }
-    }, [saved, id]);
+const onDoubleTapLike = useCallback(() => {
+    playHeart();
+    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (!liked) bounce();
+    like(true);
+}, [playHeart, liked, like, bounce]);
 
     /* ---- misc ---- */
     const openProfile = useOpenProfile();
@@ -834,7 +789,12 @@ const Postcard = ({
 
                     {/* Body */}
                     {hasVideo ? (
-                        <VideoMedia uri={videoUri!} isVisible={isVisible} box={box} onLike={onDoubleTapLike} onLongPress={longPressHandler} heart={heart} />
+                        <VideoMedia
+                            uri={videoUri!}
+                            isVisible={isVisible}
+                            box={box}
+                            onOpen={onOpenFlare ? () => onOpenFlare(id) : undefined}
+                            onLike={onDoubleTapLike} onLongPress={longPressHandler} heart={heart} />
                     ) : hasAudio ? (
                         <DoubleTapSurface onDoubleTap={onDoubleTapLike} onLongPress={longPressHandler} heart={heart}>
                             <AudioMedia
@@ -853,6 +813,7 @@ const Postcard = ({
                             onRatio={providedRatio ? undefined : setMeasuredRatio}
                             onLongPress={longPressHandler}
                             heart={heart}
+                            onOpen={onOpenFlare ? () => onOpenFlare(id) : undefined}
                         />
                     ) : editing ? (
                         <View className="mx-3.5">

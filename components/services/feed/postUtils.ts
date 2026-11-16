@@ -1,6 +1,5 @@
 import type { ShareTarget } from '@/components/posts/ShareModal';
 import { authStorage } from '@/lib/auth/authStorage';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL, resolveImg } from '@/lib/utils';
 
 /* ------------------------------- types -------------------------------- */
@@ -56,7 +55,7 @@ export type StoredUser = {
 /* ------------------------------- auth --------------------------------- */
 
 export const getAuthHeaders = async () => {
-    const token = (await authStorage.getToken()) ?? (await AsyncStorage.getItem('user'));
+    const token = await authStorage.getToken();
     return { Authorization: `Bearer ${token}` };
 };
 
