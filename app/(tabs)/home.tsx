@@ -1,17 +1,22 @@
 import { CapsuleTray } from '@/components/capsule/CapsuleTray';
 import { CapsuleViewer } from '@/components/capsule/CapsuleViewer';
 import CommentsSheet from '@/components/comments/CommentsSheet';
+import CreatePost from '@/components/createPost/CreatePost';
+import { FeedFooter } from '@/components/feed/FeedFooter';
 import { FeedPager } from '@/components/feed/FeedPager';
 import { FeedTabs } from '@/components/feed/FeedTabs';
-import { FeedFooter } from '@/components/feed/FeedFooter';
 import { OrbitalFeedList } from '@/components/feed/OrbitalFeedList';
+import { FlarePullLoader } from '@/components/flares/FlarePullLoader';
+import { isFlareEligible } from '@/components/flares/flaresUtils';
+import NotificationBell from '@/components/notifications/NotificationBell';
 import Postcard from '@/components/postCard/PostCard';
-import CreatePost from '@/components/createPost/CreatePost';
 import ShareModal from '@/components/posts/ShareModal';
+import { toPostcardProps, type PostcardProps } from '@/components/services/feed/postUtils';
+import { useDrawer } from '@/components/sideDrawer/DrawerContext';
 import FrostedGlass from '@/components/ui/FrostedGlass';
-import OrbitLoader from '@/components/ui/OrbitLoader';
 import { CAPSULE } from '@/constants/capsule/constants';
 import { Rect } from '@/constants/capsule/types';
+import type { FlarePost } from '@/constants/flares/types';
 import { useCapsules } from '@/hooks/capsule/useCapsules';
 import { useCollapsibleTray } from '@/hooks/capsule/useCollapsibleTray';
 import { useFeedTabs } from '@/hooks/feed/useFeedTabs';
@@ -22,19 +27,20 @@ import {
     useVisibleId,
     VIEWABILITY_CONFIG,
 } from '@/hooks/feed/useHomeFeed';
-import { usePostViews, VIEW_COUNT_CONFIG } from '@/hooks/feed/usePostViews';
 import { useOrbitalFeed } from '@/hooks/feed/useOrbitalFeed';
-import { toPostcardProps, type PostcardProps } from '@/components/services/feed/postUtils';
-import { useIsFocused, useRouter } from 'expo-router';
-import React, { useCallback, useRef, useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
-import Reanimated, { useAnimatedStyle } from 'react-native-reanimated';
+import { usePostViews, VIEW_COUNT_CONFIG } from '@/hooks/feed/usePostViews';
+import { setFlareSeed } from '@/hooks/flares/flareSeed';
 import { BlurTargetView } from 'expo-blur';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useDrawer } from '@/components/sideDrawer/DrawerContext';
+import * as Haptics from 'expo-haptics';
+import { useIsFocused, useNavigation, useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Image, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { GestureDetector } from 'react-native-gesture-handler';
-import NotificationBell from '@/components/notifications/NotificationBell';
+import Reanimated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getDisplayImageUrl } from '../../lib/utils';
+import { openAccountSwitcher } from '@/components/auth/AccountSwitcher';
+import AccountSwipeAvatar from '@/components/auth/AccountSwipeAvatar';
 
 /** Floating tab bar height (without the safe-area inset). Adjust to match your bar. */
 const TAB_BAR_H = 80;
@@ -57,8 +63,9 @@ const HomeHeader = ({ blurTarget, topInset, onLayoutHeight, onOpenMenu, tabs, cu
         <FrostedGlass blurTarget={blurTarget} intensity={80} className="rounded-b-[28px] border-b">
             <View style={{ paddingTop: topInset }}>
                 <View className="flex-row items-center px-4 pb-3 pt-2">
-                    <Pressable
+                    <AccountSwipeAvatar
                         onPress={onOpenMenu}
+                        onLongPress={openAccountSwitcher} delayLongPress={350}
                         accessibilityLabel="Open profile"
                         className="w-10 h-10 rounded-full overflow-hidden"
                     >
@@ -71,7 +78,7 @@ const HomeHeader = ({ blurTarget, topInset, onLayoutHeight, onOpenMenu, tabs, cu
                         ) : (
                             <View className="w-full h-full bg-gray-500" />
                         )}
-                    </Pressable>
+                    </AccountSwipeAvatar>
 
                     <View className="flex-1 py-2">
                         <Text
@@ -100,6 +107,8 @@ const HomeHeader = ({ blurTarget, topInset, onLayoutHeight, onOpenMenu, tabs, cu
 
 /* ------------------------------ screen -------------------------------- */
 
+type FlareSource = 'feed' | 'orbital';
+
 export default function HomeScreen() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
@@ -113,6 +122,35 @@ export default function HomeScreen() {
     const orbitalFeed = useOrbitalFeed<PostcardProps>(toPostcardProps);
     const capsules = useCapsules();
     const share = useShare();
+    const tabs = useFeedTabs();
+    const { open } = useDrawer();
+    const homePullOffset = useSharedValue(0);
+    const wasHomeRefreshing = useRef(false);
+
+    useEffect(() => {
+        if (wasHomeRefreshing.current && !feed.refreshing) homePullOffset.value = 0;
+        wasHomeRefreshing.current = feed.refreshing;
+    }, [feed.refreshing, homePullOffset]);
+
+    // tapping the Home tab while already on it: scroll to the top and reload the feed
+    const navigation = useNavigation();
+    const yourListRef = useRef<any>(null);
+    const onTabPressRef = useRef<() => void>(() => { });
+    onTabPressRef.current = () => {
+        if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { });
+        if (tabs.tab === 0) {
+            yourListRef.current?.scrollToOffset({ offset: 0, animated: true });
+            feed.refresh();
+        } else {
+            (orbitalFeed as any).refresh?.();
+        }
+    };
+    useEffect(() => {
+        const unsubscribe = (navigation as any).addListener('tabPress', () => {
+            if (navigation.isFocused()) onTabPressRef.current();
+        });
+        return unsubscribe;
+    }, [navigation]);
 
     // ui state
     const [commentsPostId, setCommentsPostId] = useState<string | null>(null);
@@ -124,11 +162,30 @@ export default function HomeScreen() {
     const yours = useVisibleId();
     const orbitals = useVisibleId();
 
-    const tabs = useFeedTabs();
-    const { open } = useDrawer();
+    // ---- open a post as a flare ----
+    // Home only navigates: the flare page runs its own (ranked flares) feed, starting at this post.
+    // Refs keep openFlare stable, so Postcard's memo isn't broken by every feed update.
+    const feedPostsRef = useRef(feed.posts);
+    feedPostsRef.current = feed.posts;
+    const orbitalPostsRef = useRef((orbitalFeed as any).posts as PostcardProps[] | undefined);
+    orbitalPostsRef.current = (orbitalFeed as any).posts;
+
+    const openFlare = useCallback(
+        (source: FlareSource, id: string) => {
+            const list = ((source === 'feed' ? feedPostsRef.current : orbitalPostsRef.current) ?? []) as FlarePost[];
+            const post = list.find((p) => p.id === id);
+            if (!post || !isFlareEligible(post)) return;
+            setFlareSeed(post);
+            router.push({ pathname: '/flare/[id]', params: { id } });
+        },
+        [router],
+    );
+    const openFeedFlare = useCallback((id: string) => openFlare('feed', id), [openFlare]);
+    const openOrbitalFlare = useCallback((id: string) => openFlare('orbital', id), [openFlare]);
 
     // View counting: a post counts after 1s of being fully on screen. Paused while
-    // another tab/screen/sheet is on top, so it never counts something the user can't see.
+    // another tab/screen/sheet is on top (`focused` goes false when the flare page opens),
+    // so it never counts something the user can't see.
     const overlayOpen = commentsPostId !== null || share.shareId !== null || !!viewer;
     const yourViews = usePostViews({
         enabled: focused && !overlayOpen && tabs.tab === 0,
@@ -153,7 +210,7 @@ export default function HomeScreen() {
 
     // tray
     const TRAY_H = CAPSULE.TRAY_ITEM_H + 24;
-    const { onScroll, trayStyle } = useCollapsibleTray(TRAY_H);
+    const { onScroll, trayStyle } = useCollapsibleTray(TRAY_H, undefined, homePullOffset);
     const trayFade = useAnimatedStyle(() => ({ opacity: 1 - tabs.position.get() }));
     const feedTop = headerH + TRAY_H; // Orbitals has no tray, so it only clears the header
 
@@ -174,10 +231,11 @@ export default function HomeScreen() {
                     isVisible={tabs.tab === 0}
                     onPressComments={() => setCommentsPostId(item.id)}
                     onClickShare={share.open}
+                    onOpenFlare={openFeedFlare}
                 />
             </View>
         ),
-        [tabs.tab, share.open, yourSetNode],
+        [tabs.tab, share.open, yourSetNode, openFeedFlare],
     );
 
     const orbitalSetNode = orbitalViews.setNode;
@@ -189,10 +247,11 @@ export default function HomeScreen() {
                     isVisible={tabs.tab === 1}
                     onPressComments={() => setCommentsPostId(item.id)}
                     onClickShare={share.open}
+                    onOpenFlare={openOrbitalFlare}
                 />
             </View>
         ),
-        [tabs.tab, share.open, orbitalSetNode],
+        [tabs.tab, share.open, orbitalSetNode, openOrbitalFlare],
     );
 
     return (
@@ -205,6 +264,7 @@ export default function HomeScreen() {
                             {/* page 1: Your feed */}
                             <Reanimated.FlatList
                                 data={feed.posts}
+                                ref={yourListRef}
                                 keyExtractor={keyExtractor}
                                 renderItem={renderItem}
                                 viewabilityConfigCallbackPairs={yourPairs}
@@ -272,6 +332,16 @@ export default function HomeScreen() {
                 </Reanimated.View>
             </Reanimated.View>
 
+            {tabs.tab === 0 && (
+                <FlarePullLoader
+                    offset={homePullOffset}
+                    busy={feed.refreshing}
+                    threshold={78}
+                    hold={58}
+                    top={headerH + 6}
+                />
+            )}
+
             <HomeHeader
                 blurTarget={blurTarget}
                 topInset={insets.top}
@@ -318,8 +388,6 @@ export default function HomeScreen() {
                 onDelete={capsules.remove}
                 onCommentAdded={capsules.bumpComments}
             />
-
-            <OrbitLoader visible={feed.loading} />
         </View>
     );
 }

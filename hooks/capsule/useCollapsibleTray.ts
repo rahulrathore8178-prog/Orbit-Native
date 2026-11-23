@@ -1,20 +1,25 @@
-import {
-  Easing,
-  Extrapolation,
-  interpolate,
-  useAnimatedScrollHandler,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-} from 'react-native-reanimated';
 import { CAPSULE } from '@/constants/capsule/constants'; // adjust to where CAPSULE lives
+import {
+    Easing,
+    Extrapolation,
+    interpolate,
+    useAnimatedScrollHandler,
+    useAnimatedStyle,
+    useSharedValue,
+    withTiming,
+    type SharedValue,
+} from 'react-native-reanimated';
 
 /**
  * Hides the tray when scrolling down, shows it when scrolling up.
  * `onScroll` MUST be given to a Reanimated scrollable (Reanimated.FlatList),
  * not to React Native's core Animated.FlatList.
  */
-export function useCollapsibleTray(height: number, threshold: number = CAPSULE.HIDE_THRESHOLD) {
+export function useCollapsibleTray(
+  height: number,
+  threshold: number = CAPSULE.HIDE_THRESHOLD,
+  pullOffset?: SharedValue<number>,
+) {
   const translateY = useSharedValue(0);
   const hidden = useSharedValue(false);
   const lastY = useSharedValue(0);
@@ -22,6 +27,7 @@ export function useCollapsibleTray(height: number, threshold: number = CAPSULE.H
 
   const onScroll = useAnimatedScrollHandler((e) => {
     const y = e.contentOffset.y;
+    if (pullOffset) pullOffset.value = Math.min(0, y);
     const maxY = e.contentSize.height - e.layoutMeasurement.height;
     const dy = y - lastY.value;
     lastY.value = y;

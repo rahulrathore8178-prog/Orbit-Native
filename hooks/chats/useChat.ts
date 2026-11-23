@@ -32,6 +32,8 @@ export type Message = {
   media?: MessageMedia
   status?: 'sending' | 'failed'
   progress?: number
+  replyTo?: ReplyRef
+  forwarded?: boolean
 }
 
 /** What the app hands over to send an attachment. */
@@ -45,7 +47,18 @@ export type MediaDraft = {
   height?: number
   duration?: number // seconds
   text?: string // caption (not for voice notes)
+  replyTo?: ReplyRef
 }
+
+export type ReplyRef = {
+  id: string
+  sender: 'me' | 'them'
+  text: string
+  mediaType?: MessageMedia['type']
+  mediaUrl?: string
+  isPost?: boolean
+}
+export type SendOpts = { replyTo?: ReplyRef }
 
 // ---------- Helpers ----------
 export const formatTime = (d?: string | number | Date) =>
@@ -57,8 +70,8 @@ const isTransient = (e: any) => {
   const status = e?.response?.status
   return !status || status === 502 || status === 503 || status === 504
 }
-const getToken = async (): Promise<string | null> =>
-  (await authStorage.getToken()) ?? (await AsyncStorage.getItem('user')) ?? (await AsyncStorage.getItem('token'))
+const getToken = (): Promise<string | null> => authStorage.getToken()
+
 const authHeaders = async () => {
   const t = await getToken()
   return t ? { Authorization: `Bearer ${t}` } : {}
@@ -93,6 +106,8 @@ const mapMessage = (m: any, myId: string, apiUrl: string): Message => {
     read: m.read !== false,
     edited: !!m.edited,
     media: toMedia(m.media, apiUrl),
+    replyTo: mapReply(m.replyTo, myId, apiUrl),
+    forwarded: !!m.forwarded,
     ...extractShare(m),
   }
 }
@@ -103,6 +118,27 @@ const tempMedia = (d: MediaDraft): MessageMedia => ({
   width: d.width,
   height: d.height,
   duration: d.duration,
+})
+
+const mapReply = (r: any, myId: string, apiUrl: string): ReplyRef | undefined => {
+  if (!r || !(r.id ?? r._id)) return undefined
+  return {
+    id: String(r.id ?? r._id),
+    sender: toId(r.senderId) === myId ? 'me' : 'them',
+    text: r.text ?? '',
+    mediaType: r.mediaType || undefined,
+    mediaUrl: r.mediaUrl ? (/^https?:/i.test(r.mediaUrl) ? r.mediaUrl : `${apiUrl}${r.mediaUrl}`) : undefined,
+    isPost: !!r.isPost,
+  }
+}
+
+export const toReply = (m: Message): ReplyRef => ({
+  id: m.id,
+  sender: m.sender,
+  text: m.content,
+  mediaType: m.media?.type,
+  mediaUrl: m.media && ['image', 'gif', 'sticker'].includes(m.media.type) ? m.media.url : undefined,
+  isPost: !!m.sharedPostId,
 })
 
 // ---------- Hook ----------
@@ -192,6 +228,8 @@ export function useChat({ apiUrl, selectedContact, onOffline }: Params) {
           time: formatTime(m.timestamp || m.createdAt || m.time),
           fresh: true,
           media,
+          replyTo: mapReply(m.replyTo, myId, apiUrl),
+          forwarded: !!m.forwarded,
           ...share,
         }
         setMessages((prev) => (prev.some((x) => x.id === incoming.id) ? prev : [...prev, incoming]))
@@ -281,13 +319,13 @@ export function useChat({ apiUrl, selectedContact, onOffline }: Params) {
 
   // ----- Send text / shared post -----
   const sendMessage = useCallback(
-    async (text: string, sharedPostId?: string): Promise<boolean> => {
+    async (text: string, sharedPostId?: string, opts?: SendOpts): Promise<boolean> => {
       const contact = selectedRef.current
       if (!contact || !myId) return false
       try {
         const { data } = await axios.post(
           `${apiUrl}/api/chat/${contact._id}`,
-          { text, sharedPostId },
+          { text, sharedPostId, replyToId: opts?.replyTo?.id },
           { headers: await authHeaders() }
         )
         const saved = data?.message
@@ -388,12 +426,37 @@ export function useChat({ apiUrl, selectedContact, onOffline }: Params) {
         read: false,
         status: 'sending',
         progress: 0,
+        replyTo: draft.replyTo,
         media: tempMedia(draft),
       }
       setMessages((prev) => [...prev, temp])
       return deliver(tempId)
     },
     [myId, deliver]
+  )
+
+  const forwardMessage = useCallback(
+    async (messageId: string, recipientIds: string[]) => {
+      try {
+        const { data } = await axios.post(`${apiUrl}/api/chat/forward`, { messageId, recipientIds }, { headers: await authHeaders() })
+        const open = selectedRef.current
+        // if the open chat was one of the recipients, show the copy right away
+        const here: Message[] = (data.messages ?? [])
+          .filter((m: any) => open && toId(m.recipientId) === toId(open._id))
+          .map((m: any) => ({ ...mapMessage(m, myId, apiUrl), sender: 'me' as const, fresh: true, read: false }))
+        if (here.length) {
+          setMessages((prev) => {
+            const have = new Set(prev.map((x) => x.id))
+            return [...prev, ...here.filter((x) => !have.has(x.id))]
+          })
+        }
+        return { sent: (data.sent ?? 0) as number, failed: (data.failed ?? 0) as number }
+      } catch (error) {
+        console.error('Forward message error:', error)
+        return null
+      }
+    },
+    [apiUrl, myId]
   )
 
   const retryMessage = useCallback((id: string) => { deliver(id) }, [deliver])
@@ -472,6 +535,6 @@ export function useChat({ apiUrl, selectedContact, onOffline }: Params) {
   return {
     messages, isConnected, hasMore, loadOlder,
     sendMessage, sendMedia, retryMessage, discardMessage,
-    editMessage, markRead, deleteMessage, clearMessages,
+    editMessage, markRead, deleteMessage, clearMessages, forwardMessage,
   }
 }

@@ -1,6 +1,5 @@
 import type { ShareTarget } from '@/components/posts/ShareModal';
 import { authStorage } from '@/lib/auth/authStorage';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL, resolveImg } from '@/lib/utils';
 
 /* ------------------------------- types -------------------------------- */
@@ -56,7 +55,7 @@ export type StoredUser = {
 /* ------------------------------- auth --------------------------------- */
 
 export const getAuthHeaders = async () => {
-    const token = (await authStorage.getToken()) ?? (await AsyncStorage.getItem('user'));
+    const token = await authStorage.getToken();
     return { Authorization: `Bearer ${token}` };
 };
 
@@ -78,6 +77,18 @@ export const formatTimeAgo = (createdAt: string | number | Date): string => {
     const months = Math.floor(days / 30);
     if (months < 12) return `${months}mo`;
     return `${Math.floor(days / 365)}y`;
+};
+
+/** "Just now" / "5m ago" / "3h ago", then a date once it is older than 24 hours. */
+export const formatPostTime = (createdAt: string | number | Date): string => {
+    const then = new Date(createdAt).getTime();
+    if (Number.isNaN(then)) return '';
+    const diff = Math.max(0, Date.now() - then);
+    if (diff < 10_000) return 'Just now';
+    if (diff < 24 * 3600 * 1000) return `${formatTimeAgo(createdAt)} ago`;
+    const d = new Date(then);
+    const sameYear = d.getFullYear() === new Date().getFullYear();
+    return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }) });
 };
 
 export const formatCount = (count: number): string => {

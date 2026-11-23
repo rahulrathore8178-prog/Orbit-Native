@@ -7,7 +7,7 @@ import { useVoiceNote } from '@/hooks/createPost/useVoiceNote';
 import { useCallback, useEffect } from 'react';
 import { Platform, ScrollView, View } from 'react-native';
 import { GestureDetector } from 'react-native-gesture-handler';
-import type { CreatePostProps, Destination } from '../../constants/createPost/types';
+import type { CreatePostProps, Destination, PickedMedia } from '../../constants/createPost/types';
 import {
   clearMedia,
   closeComposer,
@@ -15,6 +15,7 @@ import {
   openComposer,
   setCaption,
   setDestination,
+  setMedia,
   setError,
   submitPost,
   toggleOrbital,
@@ -77,6 +78,11 @@ export default function CreatePost({ user, bottomOffset = 100 }: CreatePostProps
     if (voiceNote.isRecording) await voiceNote.stop(); // keep what was recorded as the draft
     dispatch(closeComposer());
   }, [voiceNote, dispatch]);
+
+  const handleMedia = useCallback((m: PickedMedia) => {
+    dispatch(setMedia(m));
+    // or setMedia((prev) => [...prev, m]), whichever your composer uses
+  }, [dispatch]);
 
   const handlePost = useCallback(() => {
     if (!canPost) return;
@@ -199,9 +205,8 @@ export default function CreatePost({ user, bottomOffset = 100 }: CreatePostProps
         <ErrorBanner message={error || voiceNote.error} />
 
         <ComposerFooter
-          onGallery={picker.pickFromGallery}
-          onCamera={picker.takePhoto}
-          onVideo={picker.recordVideo}
+          onMedia={handleMedia}
+          onWebGallery={picker.pickFromGallery}   // web only; native uses the new gallery sheet
           onMic={onMicPress}
           micActive={voiceNote.isRecording}
           toastVisible={comingSoon}

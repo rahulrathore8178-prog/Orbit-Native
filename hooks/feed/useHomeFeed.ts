@@ -8,10 +8,11 @@ import {
     type PostcardProps,
     type StoredUser,
 } from '@/components/services/feed/postUtils';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { API_URL } from '../../lib/utils';
+import { authStorage } from '@/lib/auth/authStorage';
+import { useAppSelector } from '@/redux/store';
 
 /** Returns true if the server counted it (false = already viewed by this user). */
 export async function registerView(postId: string): Promise<boolean> {
@@ -26,21 +27,27 @@ export async function registerView(postId: string): Promise<boolean> {
 
 /** Logged-in user, read once from storage. */
 export function useCurrentUser() {
-    const [currentUser, setCurrentUser] = useState<StoredUser | null>(null);
+    const reduxUser = useAppSelector((s) => s.auth.user);
+    const [currentUser, setCurrentUser] = useState<StoredUser | null>(reduxUser);
 
     useEffect(() => {
         (async () => {
             try {
-                const raw = await AsyncStorage.getItem('user');
-                if (!raw) return setCurrentUser(null);
-                const user = JSON.parse(raw);
-                setCurrentUser({ ...user, profilePic: stripHost(user?.profilePic) });
+                const user = reduxUser ?? await authStorage.getUser<StoredUser>();
+                setCurrentUser(
+                    user
+                        ? {
+                            ...user,
+                            profilePic: typeof user.profilePic === 'string' ? stripHost(user.profilePic) : undefined,
+                        }
+                        : null,
+                );
             } catch (error) {
                 console.error('Error loading current user:', error);
                 setCurrentUser(null);
             }
         })();
-    }, []);
+    }, [reduxUser]);
 
     return currentUser;
 }

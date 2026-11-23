@@ -1,6 +1,6 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useMemo, useState } from 'react';
 import type { CurrentUser } from '../../constants/createPost/types';
+import { authStorage } from '@/lib/auth/authStorage';
 
 const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v : undefined);
 
@@ -20,10 +20,9 @@ export function useCurrentUser(userProp?: CurrentUser): { username?: string; pro
   useEffect(() => {
     if (propPhoto && propName) return;
     let alive = true;
-    AsyncStorage.getItem('user')
-      .then((raw) => {
-        if (!alive || !raw) return;
-        const u = JSON.parse(raw) as CurrentUser;
+    authStorage.getUser<CurrentUser>()
+      .then((u) => {
+        if (!alive || !u) return;
         setStored({ username: str(u.username), profilePic: pickPhoto(u) });
       })
       .catch(() => {});

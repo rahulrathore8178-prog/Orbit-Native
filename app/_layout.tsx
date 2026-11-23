@@ -1,15 +1,14 @@
 import '@/global.css';
 import { useEffect, useRef } from 'react';
-import { View, DeviceEventEmitter } from 'react-native';
-import { Stack, ThemeProvider, DarkTheme, useRouter, router } from 'expo-router';
+import { View } from 'react-native';
+import { Stack, ThemeProvider, DarkTheme, useRouter, usePathname } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Provider, useDispatch, useSelector } from 'react-redux';
-import { registerPushToken } from '@/lib/notifications/push';
-import * as Notifications from 'expo-notifications';
+import { handleInitialNotification, registerPushToken, startFcmListeners } from '@/lib/notifications/push';
 
 import { store as reduxStore } from '@/redux/store'; // adjust to your store path
-import { bootstrapAuth, signOut } from '@/redux/slice/authSlice';
+import { bootstrapAuth, cancelAddingAccount, removeAccount, switchSettled } from '@/redux/slice/authSlice';
 import { setupAxios, setUnauthorizedHandler } from '@/lib/auth/setupAxios';
 import OrbitLoader from '@/components/ui/OrbitLoader'; // adjust to your loader path
 import { ShareQuickHost } from '@/components/postCard/ShareQuick'; // TODO: adjust to the folder where ShareSheet.tsx lives
@@ -21,17 +20,21 @@ import { CallHost } from '@/components/calls/CallHost';
 import { API_URL } from '@/lib/utils';
 import { IncomingChatToaster } from '@/components/chats/IncomingChatToaster';
 import { NotificationExpandHost } from '@/components/notification/NotificationExpand';
+import '@/components/services/installFailover';
+import { AccountSwitcherHost } from '@/components/auth/AccountSwitcher';
+import Animated, { FadeOut, FadeIn } from 'react-native-reanimated';
+import { useChatBadgeSync } from '@/lib/chat/useChatBadgeSync';
 
 SplashScreen.preventAutoHideAsync();
 setupAxios(); // interceptors installed once, before any screen makes a request
 
 function AuthGate() {
-  // Swap `any` for your typed hooks (AppDispatch / RootState) if you have them.
   const dispatch = useDispatch<any>();
   const status = useSelector((s: any) => s.auth.status);
-  // Needed by the quick-share overlay so it can exclude you from your own friend list.
-  // If your auth slice stores the user elsewhere, adjust this selector.
+  const activeAccountId = useSelector((s: any) => s.auth.activeAccountId);
   const currentUserId = useSelector((s: any) => s.auth.user?._id ?? s.auth.user?.id);
+  const addingAccount = useSelector((s: any) => s.auth.addingAccount);
+  useChatBadgeSync();
 
   // 1) Decide signedIn / signedOut once on start.
   useEffect(() => {
@@ -45,8 +48,11 @@ function AuthGate() {
 
   // 2) Any 401 from your API while signed in = session expired -> log out cleanly.
   useEffect(() => {
-    setUnauthorizedHandler(() => {
-      if (reduxStore.getState().auth.status === 'signedIn') dispatch(signOut());
+    setUnauthorizedHandler((accountId) => {
+      const { status: st, activeAccountId } = reduxStore.getState().auth;
+      if (st !== 'signedIn') return;
+      const id = accountId ?? activeAccountId;
+      if (id) dispatch(removeAccount(id)); // only the account whose token was rejected
     });
     return () => setUnauthorizedHandler(null);
   }, [dispatch]);
@@ -64,39 +70,51 @@ function AuthGate() {
     prevStatus.current = status;
   }, [status, router]);
 
-  // 1) Register this phone for pushes once signed in (small delay so the home screen settles first).
-useEffect(() => {
-  if (status !== 'signedIn') return;
-  const t = setTimeout(() => { registerPushToken(); }, 1500);
-  return () => clearTimeout(t);
-}, [status]);
+  // Account switch: let the loader show briefly, then settle.
+  useEffect(() => {
+    if (status !== 'switching') return;
+    const t = setTimeout(() => dispatch(switchSettled()), 250);
+    return () => clearTimeout(t);
+  }, [status, dispatch]);
 
-// 2) Tell the app a push arrived while it is open (refresh badges/unread counts).
-useEffect(() => {
-  const sub = Notifications.addNotificationReceivedListener(() => {
-    DeviceEventEmitter.emit('notifications:received');
-  });
-  return () => sub.remove();
-}, []);
+  // Push, step 1: register this phone's FCM token once signed in, and again after
+  // an account switch (activeAccountId changes) so the new account owns the token.
+  useEffect(() => {
+    if (status !== 'signedIn') return;
+    const t = setTimeout(() => { registerPushToken(); }, 1500);
+    return () => clearTimeout(t);
+  }, [status, activeAccountId]);
 
-// 3) Tapping a notification opens the screen in data.url. Also works from a cold start.
-const lastResponse = Notifications.useLastNotificationResponse();
-const handledId = useRef<string | null>(null);
-useEffect(() => {
-  if (status !== 'signedIn' || !lastResponse) return;
-  const id = lastResponse.notification.request.identifier;
-  if (handledId.current === id) return;
-  handledId.current = id;
-  const url = lastResponse.notification.request.content.data?.url;
-  if (typeof url === 'string' && url.startsWith('/')) router.push(url as any);
-}, [lastResponse, status]);
+  // Push, step 2: foreground display, notification taps, token refresh.
+  useEffect(() => {
+    if (status !== 'signedIn') return;
+    return startFcmListeners();
+  }, [status, activeAccountId]);
+
+  // Push, step 3: app was killed and opened by tapping a notification.
+  const coldHandled = useRef(false);
+  useEffect(() => {
+    if (status !== 'signedIn' || coldHandled.current) return;
+    coldHandled.current = true;
+    handleInitialNotification();
+  }, [status]);
+
+  // Add-account mode: open the login screen once, and end the mode if the user backs out to the app.
+  const pathname = usePathname();
+  const addNav = useRef<'idle' | 'pushed'>('idle');
+  useEffect(() => {
+    const AUTH_PATHS = ['/', '/signup', '/complete-profile', '/forgot-password', '/ForgotPassword'];
+    if (!addingAccount) { addNav.current = 'idle'; return; }
+    if (addNav.current === 'idle') { addNav.current = 'pushed'; router.push('/'); return; }
+    if (!AUTH_PATHS.includes(pathname)) dispatch(cancelAddingAccount());
+  }, [addingAccount, pathname, dispatch]);
 
   return (
     // Calls: realtime socket + WebRTC live here so an incoming call can ring on any screen.
     <CallProvider apiUrl={API_URL} userId={isSignedIn ? currentUserId : null}>
       {/* The navigator is ALWAYS mounted. In SDK 58 the router builds its state from the
           launch URL ('/'), so it needs a navigator to exist on the first render. */}
-      <Stack screenOptions={{ headerShown: false }}>
+      <Stack key={activeAccountId ?? 'signed-out'} screenOptions={{ headerShown: false }}>
         <Stack.Protected guard={isSignedIn} redirectTo="/">
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="orbital" options={{ animation: 'slide_from_right' }} />
@@ -104,7 +122,7 @@ useEffect(() => {
 
         {/* complete-profile is signed-out only: once signIn() succeeds the guard
       redirects to /home automatically. */}
-        <Stack.Protected guard={!isSignedIn} redirectTo="/home">
+        <Stack.Protected guard={!isSignedIn || addingAccount} redirectTo="/home">
           <Stack.Screen name="index" />
           <Stack.Screen name="signup" />
           <Stack.Screen name="complete-profile" options={{ gestureEnabled: false }} />
@@ -112,20 +130,22 @@ useEffect(() => {
         </Stack.Protected>
       </Stack>
 
-      {/* Quick-share overlay (hold-and-pan friend list + "Shared" toast).
-          Mounted once, signed-in only, above the navigator. It ignores touches (pointerEvents none). */}
       {isSignedIn ? <ShareQuickHost currentUserId={currentUserId} /> : null}
       {isSignedIn ? <IncomingChatToaster /> : null}
+      {isSignedIn ? <AccountSwitcherHost /> : null}
 
-      {/* Full-screen incoming / outgoing / active call UI, above everything else. */}
       {isSignedIn ? <CallHost /> : null}
       {isSignedIn ? <NotificationExpandHost /> : null}
 
       {/* Loader sits on top instead of replacing the navigator. */}
-      {status === 'loading' ? (
-        <View className="absolute inset-0 bg-black">
+      {status === 'loading' || status === 'switching' ? (
+        <Animated.View
+          entering={FadeIn.duration(220)}
+          exiting={FadeOut.duration(320)}
+          className="absolute inset-0 bg-black"
+        >
           <OrbitLoader />
-        </View>
+        </Animated.View>
       ) : null}
     </CallProvider>
   );

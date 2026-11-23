@@ -6,6 +6,7 @@ import { fetchFriends } from '@/redux/slice/friends';
 import { profileApi } from '@/components/services/profileApi';
 import { toFriend } from '@/components/services/profileMappers';
 import { Friend, FriendRequest, ProfilePost, ProfileUser } from '@/components/profile/profile';
+import { authStorage } from '@/lib/auth/authStorage';
 
 /**
  * Loads one profile. Data lives in local state (not the shared redux slice) so the
@@ -23,11 +24,14 @@ export function useProfile(userId?: string) {
     const [refreshing, setRefreshing] = useState(false);
 
     const ownFriends = useSelector((state: RootState) => state.friends.friends);
+    const activeAccountId = useSelector((state: RootState) => state.auth.activeAccountId);
     const isOwn = !userId || userId === currentUserId;
 
     const load = useCallback(async () => {
+        const requestAccountId = activeAccountId;
         try {
             const me = await profileApi.getMe();
+            if (requestAccountId !== authStorage.getActiveIdSync()) return;
             setCurrentUserId(me.id);
 
             const target = userId && userId !== me.id ? await profileApi.getUser(userId) : me;
@@ -47,6 +51,7 @@ export function useProfile(userId?: string) {
                     })
                     : [];
 
+            if (requestAccountId !== authStorage.getActiveIdSync()) return;
             setUser(target);
             setPostsLocked(!isSelf && locked);
             setPosts(
@@ -63,11 +68,15 @@ export function useProfile(userId?: string) {
             setLoading(false);
             setRefreshing(false);
         }
-    }, [userId]);
+    }, [userId, activeAccountId]);
 
     useEffect(() => {
         setLoading(true);
         setPostsLocked(false);
+        setUser(null);
+        setPosts([]);
+        setRequests([]);
+        setOtherFriends([]);
         load();
     }, [load]);
 
@@ -88,8 +97,8 @@ export function useProfile(userId?: string) {
 
     useEffect(() => {
         // own friends come from redux
-        if (!userId) dispatch(fetchFriends());
-    }, [userId, dispatch]);
+        if (!userId) dispatch(fetchFriends(activeAccountId ?? undefined));
+    }, [userId, activeAccountId, dispatch]);
 
     const friends = useMemo(
         () => (isOwn ? ownFriends.map(toFriend) : otherFriends),

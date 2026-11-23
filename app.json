@@ -25,15 +25,19 @@
         "android.permission.BLUETOOTH_CONNECT",
         "android.permission.WAKE_LOCK",
         "android.permission.BLUETOOTH",
-        "android.permission.MODIFY_AUDIO_SETTINGS"
+        "android.permission.POST_NOTIFICATIONS"
       ]
     },
     "ios": {
       "bundleIdentifier": "com.orbit.app",
       "supportsTablet": true,
+      "entitlements": {
+        "aps-environment": "production"
+      },
       "infoPlist": {
         "UIBackgroundModes": [
-          "audio"
+          "audio",
+          "remote-notification"
         ],
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true,
@@ -68,12 +72,8 @@
           }
         }
       ],
-      [
-        "expo-notifications",
-        {
-          "color": "#6D8BFF"
-        }
-      ],
+      "@react-native-firebase/app",
+      "@react-native-firebase/messaging",
       "expo-system-ui",
       [
         "expo-location",
@@ -92,6 +92,22 @@
         }
       ],
       [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow $(PRODUCT_NAME) to use your camera",
+          "microphonePermission": "Allow $(PRODUCT_NAME) to record audio for videos",
+          "recordAudioAndroid": true
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow $(PRODUCT_NAME) to access your photos",
+          "savePhotosPermission": "Allow $(PRODUCT_NAME) to save photos",
+          "isAccessMediaLocationEnabled": true
+        }
+      ],
+      [
         "expo-audio",
         {
           "microphonePermission": "Allow $(PRODUCT_NAME) to record voice notes."
@@ -104,6 +120,9 @@
       [
         "expo-build-properties",
         {
+          "ios": {
+            "useFrameworks": "static"
+          },
           "android": {
             "enableProguardInReleaseBuilds": false,
             "enableShrinkResourcesInReleaseBuilds": false,

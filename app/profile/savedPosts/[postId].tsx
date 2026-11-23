@@ -26,7 +26,12 @@ const timeAgo = (iso: string) => {
 };
 
 export default function PostDetailScreen() {
-    const { postId, from, comments } = useLocalSearchParams<{ postId: string; from?: string; comments?: string }>();
+    const { postId, contactId, from, comments } = useLocalSearchParams<{
+        postId: string;
+        contactId?: string;
+        from?: string;
+        comments?: string;
+    }>();
     const dispatch = useDispatch<AppDispatch>();
     const insets = useSafeAreaInsets();
 
@@ -95,6 +100,7 @@ export default function PostDetailScreen() {
             <Stack.Screen
                 options={{ headerShown: false, animation: from === 'notif' ? 'fade' : 'fade_from_bottom' }}
             />
+
             <AmbientBackground />
             <GlassHeader
                 title="Post"

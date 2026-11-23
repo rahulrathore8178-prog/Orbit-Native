@@ -2,8 +2,10 @@ import { authStorage } from '@/lib/auth/authStorage'
 import { API_URL } from '@/lib/utils'
 import axios from 'axios'
 import { useFocusEffect } from 'expo-router'
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { AppState } from 'react-native'
+import { useSelector } from 'react-redux'
+import type { RootState } from '@/redux/store'
 
 export type Conversation = {
     contactId: string
@@ -24,17 +26,22 @@ const POLL_MS = 12000
  * (The chat socket only lives inside an open chat, so the list polls instead of listening.)
  */
 export function useConversations() {
+    const activeAccountId = useSelector((state: RootState) => state.auth.activeAccountId)
     const [conversations, setConversations] = useState<Record<string, Conversation>>({})
     const [refreshing, setRefreshing] = useState(false)
     const inFlight = useRef(false)
+    const requestAccountRef = useRef<string | null>(null)
 
     const load = useCallback(async () => {
         if (inFlight.current) return
         inFlight.current = true
+        const requestAccountId = activeAccountId
+        requestAccountRef.current = requestAccountId
         try {
             const token = await authStorage.getToken()
             const headers = token ? { Authorization: `Bearer ${token}` } : undefined
             const { data } = await axios.get(`${API_URL}/api/chat/conversations`, { headers, timeout: 15000 })
+            if (requestAccountRef.current !== activeAccountId) return
             const next: Record<string, Conversation> = {}
             for (const c of data?.conversations ?? []) next[String(c.contactId)] = c
             setConversations(next)
@@ -46,6 +53,7 @@ export function useConversations() {
                     const { data } = await axios.get(`${API_URL}/api/chat/unread`, {
                         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
                     })
+                    if (requestAccountRef.current !== activeAccountId) return
                     setConversations((prev) => {
                         const next: Record<string, Conversation> = {}
                         for (const [id, c] of Object.entries(prev)) next[id] = { ...c, unread: data?.byContact?.[id] ?? 0 }
@@ -63,7 +71,13 @@ export function useConversations() {
         } finally {
             inFlight.current = false
         }
-    }, [])
+    }, [activeAccountId])
+
+    useEffect(() => {
+        setConversations({})
+        requestAccountRef.current = activeAccountId
+        inFlight.current = false
+    }, [activeAccountId])
 
     useFocusEffect(
         useCallback(() => {

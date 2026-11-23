@@ -6,16 +6,17 @@ import React, { memo, useCallback, useState } from 'react'
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native'
 import { API_URL, getDisplayImageUrl } from '../../lib/utils'
 import { clampAspectRatio, formatDuration, withHost } from '../services/feed/postUtils'
-import { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated'
+import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated'
 import { router } from 'expo-router'
 import { useVideoThumb } from '@/hooks/sharedPost/useVideoThumb'
-import { Animated } from 'react-native'
+import { useEvent, useEventListener } from 'expo'
 
 type Props = {
     postId: string
     initialPost?: SharedPostData
     isMe: boolean
     onLongPress: () => void
+    onOpen?: () => void
 }
 
 const SPRING = { damping: 18, stiffness: 320, mass: 0.6 }
@@ -52,10 +53,39 @@ const VideoBox = ({ uri, thumb }: { uri: string; thumb?: string }) => {
 // Player is created only after the first tap, so a chat full of shared videos stays light.
 const ActiveVideo = ({ uri }: { uri: string }) => {
     const player = useVideoPlayer(uri, (p) => {
-        p.loop = true
+        p.loop = false
         p.play()
     })
-    return <VideoView player={player} style={StyleSheet.absoluteFill} contentFit="contain" nativeControls />
+    const { isPlaying } = useEvent(player, 'playingChange', { isPlaying: player.playing })
+    const [ended, setEnded] = useState(false)
+    useEventListener(player, 'playToEnd', () => setEnded(true))
+
+    const toggle = () => {
+        if (ended) {
+            setEnded(false)
+            player.replay()
+            return
+        }
+        if (player.playing) player.pause()
+        else player.play()
+    }
+
+    const showButton = ended || !isPlaying
+
+    return (
+        <View style={StyleSheet.absoluteFill}>
+            <VideoView player={player} style={StyleSheet.absoluteFill} contentFit="contain" nativeControls={false} />
+            {/* transparent layer on top of the native video, so it gets the taps */}
+            <Pressable onPress={toggle} style={StyleSheet.absoluteFill} accessibilityLabel={isPlaying ? 'Pause video' : 'Play video'} />
+            {showButton && (
+                <View pointerEvents="none" style={StyleSheet.absoluteFill} className="items-center justify-center">
+                    <View className="h-12 w-12 items-center justify-center rounded-full border border-white/25 bg-black/40">
+                        <Ionicons name={ended ? 'refresh' : 'play'} size={20} color="#fff" style={ended ? undefined : { marginLeft: 2 }} />
+                    </View>
+                </View>
+            )}
+        </View>
+    )
 }
 
 const AudioClip = ({ uri, duration }: { uri: string; duration?: number }) => {
@@ -90,7 +120,7 @@ const AudioClip = ({ uri, duration }: { uri: string; duration?: number }) => {
 
 /* ───────────── Bubble ───────────── */
 
-export const SharedPostBubble = memo(function SharedPostBubble({ postId, initialPost, isMe, onLongPress }: Props) {
+export const SharedPostBubble = memo(function SharedPostBubble({ postId, initialPost, isMe, onLongPress, onOpen }: Props) {
     const { width } = useWindowDimensions()
     const { post, failed } = useSharedPost(postId, initialPost)
 
@@ -102,9 +132,10 @@ export const SharedPostBubble = memo(function SharedPostBubble({ postId, initial
     const videoThumb = useVideoThumb(postId, videoUri)
 
     const open = useCallback(
-        () => router.push({ pathname: '/profile/savedPosts/[postId]', params: { postId } }),
-        [postId],
+        () => (onOpen ? onOpen() : router.push({ pathname: '/profile/savedPosts/[postId]', params: { postId } })),
+        [onOpen, postId],
     )
+
     const orbitalId = post?.orbital?.id
     const openOrbital = useCallback(
         () => orbitalId && router.push({ pathname: '/orbital/[id]', params: { id: orbitalId } }),

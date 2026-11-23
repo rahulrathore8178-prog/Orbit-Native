@@ -6,7 +6,7 @@ import { Friend } from '@/redux/slice/friends'
 import { Ionicons } from '@expo/vector-icons'
 import * as Haptics from 'expo-haptics'
 import React, { memo, useCallback, useEffect, useMemo, useState } from 'react'
-import { FlatList, Pressable, RefreshControl, Text, TextInput, View } from 'react-native'
+import { FlatList, Image, Pressable, RefreshControl, Text, TextInput, View } from 'react-native'
 import { KeyboardAvoidingView, useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller'
 import Animated, {
   FadeInDown,
@@ -20,6 +20,9 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import AccountSwipeAvatar from '../auth/AccountSwipeAvatar'
+import { openAccountSwitcher } from '../auth/AccountSwitcher'
+import { getDisplayImageUrl } from '@/lib/utils'
 
 type Props = {
   contacts: Friend[]
@@ -29,6 +32,8 @@ type Props = {
   onSelect: (contact: Friend) => void
   onOpenProfile: (contact: Friend) => void
   onNotify: (text: string) => void
+  profilePic?: string
+  onOpenMenu: () => void
 }
 
 const toggle = (set: Set<string>, id: string) => {
@@ -96,9 +101,8 @@ const ContactRow = memo(function ContactRow({
         delayLongPress={250}
         onPressIn={() => (scale.value = withSpring(0.975, { damping: 18, stiffness: 320 }))}
         onPressOut={() => (scale.value = withSpring(1, { damping: 14, stiffness: 260 }))}
-        className={`flex-row items-center gap-3 overflow-hidden rounded-2xl border px-3 py-3 ${
-          isNew ? 'border-sky-400/25 border-t-sky-300/30 bg-sky-500/[0.09]' : 'border-white/5 border-t-white/10 bg-white/[0.04]'
-        }`}
+        className={`flex-row items-center gap-3 overflow-hidden rounded-2xl border px-3 py-3 ${isNew ? 'border-sky-400/25 border-t-sky-300/30 bg-sky-500/[0.09]' : 'border-white/5 border-t-white/10 bg-white/[0.04]'
+          }`}
       >
         {/* soft accent edge on conversations with something new */}
         {isNew && <View className="absolute bottom-3 left-0 top-3 w-[3px] rounded-r-full bg-sky-400" />}
@@ -182,7 +186,9 @@ function SearchDock({ value, onChangeText }: { value: string; onChangeText: (t: 
 
 // ---------- Screen ----------
 
-export function ContactsScreen({ contacts, conversations, refreshing, onRefresh, onSelect, onOpenProfile, onNotify }: Props) {
+export function ContactsScreen({
+  contacts, conversations, refreshing, onRefresh, onSelect, onOpenProfile, onNotify, profilePic, onOpenMenu,
+}: Props) {
   const insets = useSafeAreaInsets()
   const [query, setQuery] = useState('')
   const [active, setActive] = useState<Friend | null>(null) // contact whose long-press menu is open
@@ -208,7 +214,10 @@ export function ContactsScreen({ contacts, conversations, refreshing, onRefresh,
       )
   }, [contacts, query, hidden, pinned, conversations])
 
-  const totalUnread = useMemo(() => Object.values(conversations).reduce((n, c) => n + (c.unread || 0), 0), [conversations])
+  const totalUnread = useMemo(
+    () => Object.values(conversations).filter((c) => (c.unread || 0) > 0).length,
+    [conversations]
+  )
 
   const handleLongPress = useCallback((c: Friend) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
@@ -264,14 +273,33 @@ export function ContactsScreen({ contacts, conversations, refreshing, onRefresh,
 
       {/* the list shrinks as the keyboard opens, and the search dock rides on top of it */}
       <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
-        <Animated.View entering={FadeInDown.duration(450)} className="px-5 pb-3" style={{ paddingTop: insets.top + 12 }}>
-          <View className="flex-row items-center justify-center gap-2">
-            <Text className="text-center text-2xl font-bold text-white">Messages</Text>
-            {totalUnread > 0 && (
-              <View className="rounded-full border border-sky-400/30 bg-sky-500/15 px-2 py-0.5">
-                <Text className="text-[11px] font-semibold text-sky-300">{totalUnread > 99 ? '99+' : totalUnread} new</Text>
-              </View>
-            )}
+        <Animated.View entering={FadeInDown.duration(450)} className="px-4 pb-3" style={{ paddingTop: insets.top + 12 }}>
+          <View className="flex-row items-center">
+            <AccountSwipeAvatar
+              onPress={onOpenMenu}
+              onLongPress={openAccountSwitcher}
+              delayLongPress={350}
+              accessibilityLabel="Open profile"
+              className="h-10 w-10 overflow-hidden rounded-full"
+            >
+              {profilePic ? (
+                <Image source={{ uri: getDisplayImageUrl(profilePic) }} className="h-full w-full" resizeMode="cover" />
+              ) : (
+                <View className="h-full w-full bg-gray-500" />
+              )}
+            </AccountSwipeAvatar>
+
+            <View className="flex-1 flex-row items-center justify-center gap-2">
+              <Text className="text-center text-2xl font-bold text-white">Messages</Text>
+              {totalUnread > 0 && (
+                <View className="rounded-full border border-sky-400/30 bg-sky-500/15 px-2 py-0.5">
+                  <Text className="text-[11px] font-semibold text-sky-300">{totalUnread > 99 ? '99+' : totalUnread} new</Text>
+                </View>
+              )}
+            </View>
+
+            {/* same width as the avatar, so the title stays centred */}
+            <View className="w-10" />
           </View>
         </Animated.View>
 

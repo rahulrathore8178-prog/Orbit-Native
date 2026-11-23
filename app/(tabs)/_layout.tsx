@@ -1,16 +1,21 @@
-import '@/global.css';
 import { DrawerProvider } from '@/components/sideDrawer/DrawerContext';
+import { ChatTabIcon } from '@/components/ui/chats/TabBadgeDot';
+import { FlareIcon } from '@/components/ui/flare/FlareIcon';
 import { FloatingTabBar } from '@/components/ui/FloatingTabBar';
+import { HomeDrawerHost } from '@/components/ui/HomeDrawerHost';
+import '@/global.css';
 import { Tabs } from 'expo-router';
 import { Brain, ChartArea, Home, Search } from 'lucide-react-native';
-import { ChatTabIcon } from '@/components/ui/chats/TabBadgeDot';
-import { HomeDrawerHost } from '@/components/ui/HomeDrawerHost';
+import { useSelector } from 'react-redux';
+import type { RootState } from '@/redux/store';
 
 export default function TabLayout() {
+  const activeAccountId = useSelector((state: RootState) => state.auth.activeAccountId);
 
   return (
     <DrawerProvider>
       <Tabs
+        key={activeAccountId ?? 'signed-out'}
         tabBar={(props) => <FloatingTabBar {...props} />}
         screenOptions={{ headerShown: false }}
       >
@@ -29,10 +34,10 @@ export default function TabLayout() {
           }}
         />
         <Tabs.Screen
-          name="search"
+          name="Flares"
           options={{
-            title: 'Search',
-            tabBarIcon: ({ color }) => <Search size={23} color={color} />,
+            title: 'Flares',
+            tabBarIcon: ({ color }) => <FlareIcon size={30} color={color} />,
           }}
         />
         <Tabs.Screen
@@ -43,6 +48,13 @@ export default function TabLayout() {
           }}
         />
         <Tabs.Screen
+          name="search"
+          options={{
+            title: 'Search',
+            tabBarIcon: ({ color }) => <Search size={23} color={color} />,
+          }}
+        />
+        {/* <Tabs.Screen
           name="profile"
           options={{
             title: 'Profile',
@@ -50,7 +62,7 @@ export default function TabLayout() {
             headerTitleAlign: 'center',
             tabBarIcon: ({ color }) => <ChartArea size={23} color={color} />,
           }}
-        />
+        /> */}
       </Tabs>
       <HomeDrawerHost />
     </DrawerProvider>

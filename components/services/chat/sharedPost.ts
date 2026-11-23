@@ -2,6 +2,7 @@ import axios from 'axios'
 import { useEffect, useState } from 'react'
 import { API_URL } from '@/lib/utils'
 import { getAuthHeaders } from '../feed/postUtils'
+import { setPosts } from '@/redux/slice/profileSlice'
 
 // TODO: confirm this endpoint returns a single post
 const POST_URL = (id: string) => `${API_URL}/api/community/posts/${id}`
@@ -91,23 +92,21 @@ function fetchPost(id: string) {
  * Uses the populated post if the message already has one (and it includes the author),
  * otherwise loads it by id. Pass `enabled = false` to skip the request.
  */
-export function useSharedPost(id: string, initial?: SharedPostData, enabled = true) {
+export function useSharedPost(id: string, initial?: SharedPostData, enabled = true, needFull = false) {
     const [post, setPost] = useState<SharedPostData | null>(() => cache.get(id) ?? initial ?? null)
     const [failed, setFailed] = useState(false)
 
     useEffect(() => {
-        if (initial && (!cache.get(id)?.author || cache.get(id)?.orbitalUnresolved)) cache.set(id, initial)
+        if (initial && !done.has(id) && (!cache.get(id)?.author || cache.get(id)?.orbitalUnresolved)) cache.set(id, initial)
         const have = cache.get(id)
         if (have && have !== post) setPost(have)
-        if (!enabled || (have?.author && !have.orbitalUnresolved) || done.has(id)) return
+        if (!enabled || (!needFull && have?.author && !have.orbitalUnresolved) || done.has(id)) return
 
         let alive = true
         fetchPost(id)
             .then((p) => alive && setPost(p))
             .catch(() => alive && setFailed(true))
-        return () => {
-            alive = false
-        }
+        return () => { alive = false }
     }, [id, enabled]) // eslint-disable-line react-hooks/exhaustive-deps
 
     return { post, failed }

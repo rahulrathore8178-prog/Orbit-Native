@@ -1,6 +1,5 @@
 import { Friend, FriendRequest, ProfilePost, ProfileUser } from '@/components/profile/profile';
 import { API_URL } from '@/lib/utils';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios, { AxiosRequestConfig } from 'axios';
 import { Platform } from 'react-native';
 import { resolveUri, toFriend, toFriendRequest, toProfilePost, toProfileUser } from './profileMappers';
@@ -117,7 +116,7 @@ export const profileApi = {
 
 
     async uploadAvatar(uri: string): Promise<string | undefined> {
-        const token = await AsyncStorage.getItem('user');
+        const token = await authStorage.getToken();
         const formData = new FormData();
         try {
             if (Platform.OS === 'web') {
