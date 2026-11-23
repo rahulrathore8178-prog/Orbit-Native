@@ -33,6 +33,7 @@ import {
     clampAspectRatio,
     formatCount,
     formatDuration,
+    formatPostTime,
     formatTimeAgo,
     hashSeed,
     withHost,
@@ -225,7 +226,7 @@ const PostHeader = ({
                 <AvatarInitial name={author.username} size={24} />
             )}
             <Text numberOfLines={1} className="ml-2 text-[13px] font-semibold text-white/90">{author.username}</Text>
-            <Text className="ml-2 text-[11px] text-white/55">{formatTimeAgo(createdAt)} ago</Text>
+            <Text className="ml-2 text-[11px] text-white/55">{formatPostTime(createdAt)} ago</Text>
         </TouchableOpacity>
     </View>
 ) : (

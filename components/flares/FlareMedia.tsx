@@ -1,8 +1,9 @@
+import { ACTIONS_ROW_HEIGHT, FILL_TOLERANCE, TOP_UI_HEIGHT } from '@/constants/flares/contants';
+import { useFlareLayout } from '@/hooks/flares/useFlaresLayout';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Image, Platform, View } from 'react-native';
-import { useVideoPlayer, VideoView } from 'expo-video';
-import { useFlareLayout } from '@/hooks/flares/useFlaresLayout';
-import { ACTIONS_ROW_HEIGHT, FILL_TOLERANCE, TOP_UI_HEIGHT } from '@/constants/flares/contants';
+import { Easing, SharedValue, withTiming } from 'react-native-reanimated';
 import type { FlareMediaInfo } from './flaresUtils';
 
 const safe = (fn: () => void) => {
@@ -11,6 +12,15 @@ const safe = (fn: () => void) => {
     } catch {
         /* player already released */
     }
+};
+
+/** What the gesture layer can do to the player. */
+export type FlarePlayerApi = {
+    seekBy: (delta: number) => void;
+    seekTo: (t: number) => void;
+    setRate: (r: number) => void;
+    getTime: () => number;
+    getDuration: () => number;
 };
 
 type VideoProps = {
@@ -22,9 +32,13 @@ type VideoProps = {
     playing: boolean;
     muted: boolean;
     onRatio: (r: number) => void;
+    controlRef?: React.MutableRefObject<FlarePlayerApi | null>;
+    progress?: SharedValue<number>;
+    duration?: SharedValue<number>;
+    scrubbing?: SharedValue<number>;
 };
 
-function FlareVideo({ uri, fit, w, h, active, playing, muted, onRatio }: VideoProps) {
+function FlareVideo({ uri, fit, w, h, active, playing, muted, onRatio, controlRef, progress, duration, scrubbing }: VideoProps) {
     const player = useVideoPlayer(uri, (p) => {
         p.loop = true;
         p.muted = true;
@@ -46,12 +60,63 @@ function FlareVideo({ uri, fit, w, h, active, playing, muted, onRatio }: VideoPr
     useEffect(() => { safe(() => { player.muted = muted; }); }, [muted, player]);
     useEffect(() => { safe(() => (playing ? player.play() : player.pause())); }, [playing, player]);
 
+    // controller for seek / speed (pitch is always preserved, so audio quality is untouched)
+    useEffect(() => {
+        if (!controlRef) return;
+        const seekTo = (t: number) =>
+            safe(() => {
+                const d = player.duration;
+                const max = d > 0 ? d - 0.05 : Math.max(0, t);
+                const next = Math.max(0, Math.min(t, max));
+                player.currentTime = next;
+                if (progress && d > 0) progress.value = next / d;
+            });
+        const api: FlarePlayerApi = {
+            seekTo,
+            seekBy: (delta) => {
+                let now = 0;
+                safe(() => { now = player.currentTime; });
+                seekTo(now + delta);
+            },
+            setRate: (r) => safe(() => {
+                player.preservesPitch = true;
+                player.playbackRate = r;
+            }),
+            getTime: () => { let t = 0; safe(() => { t = player.currentTime; }); return t; },
+            getDuration: () => { let d = 0; safe(() => { d = player.duration; }); return d; },
+        };
+        controlRef.current = api;
+        return () => { if (controlRef.current === api) controlRef.current = null; };
+    }, [player, controlRef, progress]);
+
+    // progress feed for the seek bar (10 updates/s, glided to look continuous)
+    useEffect(() => {
+        if (!progress || !duration) return;
+        safe(() => { player.timeUpdateEventInterval = 0.1; });
+        const sub = player.addListener('timeUpdate', ({ currentTime }) => {
+            let d = 0;
+            safe(() => { d = player.duration; });
+            if (d > 0) duration.value = d;
+            if (d <= 0 || (scrubbing && scrubbing.value > 0.5)) return;
+            const p = Math.min(1, Math.max(0, currentTime / d));
+            if (p < progress.value - 0.3) progress.value = p; // loop wrap: jump, don't sweep back
+            else progress.value = withTiming(p, { duration: 120, easing: Easing.linear });
+        });
+        return () => safe(() => sub.remove());
+    }, [player, progress, duration, scrubbing]);
+
     // restart from the top once it has fully left the screen
     useEffect(() => {
         if (active) return;
-        const t = setTimeout(() => safe(() => { player.currentTime = 0; }), 350);
+        const t = setTimeout(() => {
+            safe(() => {
+                player.currentTime = 0;
+                player.playbackRate = 1;
+            });
+            if (progress) progress.value = 0;
+        }, 350);
         return () => clearTimeout(t);
-    }, [active, player]);
+    }, [active, player, progress]);
 
     // learn the real video ratio so wide clips get the blurred-backdrop treatment
     useEffect(() => {
@@ -85,9 +150,13 @@ type Props = {
     near: boolean;
     playing: boolean;
     muted: boolean;
+    controlRef?: React.MutableRefObject<FlarePlayerApi | null>;
+    progress?: SharedValue<number>;
+    duration?: SharedValue<number>;
+    scrubbing?: SharedValue<number>;
 };
 
-export function FlareMedia({ media, pageH, active, near, playing, muted }: Props) {
+export function FlareMedia({ media, pageH, active, near, playing, muted, controlRef, progress, duration, scrubbing }: Props) {
     const { width, topChrome, actionsBottom } = useFlareLayout();
     const [measured, setMeasured] = useState<number | null>(null);
     const onRatio = useCallback((r: number) => setMeasured((p) => (p === r ? p : r)), []);
@@ -125,6 +194,10 @@ export function FlareMedia({ media, pageH, active, near, playing, muted }: Props
                     playing={playing}
                     muted={muted}
                     onRatio={onRatio}
+                    controlRef={controlRef}
+                    progress={progress}
+                    duration={duration}
+                    scrubbing={scrubbing}
                 />
             ) : null
         ) : (

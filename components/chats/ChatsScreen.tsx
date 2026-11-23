@@ -2,7 +2,7 @@ import {
   ActionSheet, Avatar, Glass, IconButton, SheetOption, Toast, ToastData, ToastVariant, captureBackdrop,
 } from '@/components/ui/chats/ui'
 import { OrbitBackdrop } from '@/components/search/OrbitbackDrop'
-import { MediaDraft, Message } from '@/hooks/chats/useChat'
+import { MediaDraft, Message, ReplyRef, SendOpts, toReply } from '@/hooks/chats/useChat'
 import { useCall } from '@/lib/calls/callProvider'
 import { Friend } from '@/redux/slice/friends'
 import { Ionicons } from '@expo/vector-icons'
@@ -12,7 +12,10 @@ import * as ImagePicker from 'expo-image-picker'
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FlatList, Modal, Platform, Pressable, Text, View } from 'react-native'
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller'
-import Animated, { FadeIn, FadeInDown, FadeInUp, ZoomIn, ZoomOut } from 'react-native-reanimated'
+import Animated, {
+  FadeIn, FadeInDown, FadeInUp, ZoomIn, ZoomOut,
+  useAnimatedStyle, useSharedValue, withDelay, withSequence, withTiming,
+} from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { SharedPostBubble } from './SharedPostBubble'
 import { useFocusEffect } from 'expo-router'
@@ -25,6 +28,9 @@ import { MediaBubble, VideoViewer } from './MediaBubble'
 import { MediaPreview } from './MediaPreview'
 import { ImageViewer } from '@/components/comments/CommentUI'
 import GiphyPanel from '@/components/comments/GiphyPanel'
+import { ForwardedTag, ReplyQuote } from './ReplyQuote'
+import { SwipeToReply } from './SwipetoReply'
+import { ForwardSheet } from './ForwardSheet'
 
 type Props = {
   contact: Friend
@@ -33,7 +39,7 @@ type Props = {
   toast: ToastData | null
   hasMore: boolean
   onBack: () => void
-  onSend: (text: string) => boolean | Promise<boolean>
+  onSend: (text: string, sharedPostId?: string, opts?: SendOpts) => boolean | Promise<boolean>
   onSendMedia: (draft: MediaDraft) => Promise<boolean> | boolean
   onRetry: (id: string) => void
   onDiscard: (id: string) => void
@@ -43,6 +49,8 @@ type Props = {
   onDeleteMessage: (id: string, scope: 'me' | 'everyone') => void
   onClearChat: () => void
   onNotify: (text: string, variant?: ToastVariant) => void
+  onForward?: (messageId: string, recipientIds: string[]) => Promise<{ sent: number; failed: number } | null>
+  onOpenShared?: (postId: string) => void
 }
 
 type Sheet = { kind: 'message'; message: Message } | { kind: 'attach' } | { kind: 'menu' }
@@ -52,13 +60,18 @@ const MAX_VIDEO_BYTES = 30 * 1024 * 1024
 const MAX_VIDEO_SECONDS = 120
 
 // ---------- Text bubble ----------
-const TextBubble = memo(function TextBubble({ item, isMe, tail, onLongPress }: { item: Message; isMe: boolean; tail: boolean; onLongPress: (m: Message) => void }) {
+const TextBubble = memo(function TextBubble({
+  item, isMe, tail, contactName, onLongPress, onJumpTo,
+}: { item: Message; isMe: boolean; tail: boolean; contactName: string; onLongPress: (m: Message) => void; onJumpTo: (id: string) => void }) {
+  const reply = item.replyTo
   return (
     <Pressable
       onLongPress={() => onLongPress(item)}
       delayLongPress={250}
       className={`max-w-[80%] rounded-[22px] border px-4 py-2.5 active:opacity-85 ${isMe ? 'border-blue-400/20 bg-[#0f2a6b]' : 'border-white/10 bg-[#17171a]'} ${tail ? (isMe ? 'rounded-br-md' : 'rounded-bl-md') : ''}`}
     >
+      {item.forwarded && <ForwardedTag tone={isMe ? 'me' : 'them'} />}
+      {reply && <ReplyQuote reply={reply} name={reply.sender === 'me' ? 'You' : contactName} onPress={() => onJumpTo(reply.id)} />}
       <Text className={`text-[15px] leading-[21px] ${isMe ? 'text-blue-50' : 'text-gray-100'}`}>{item.content}</Text>
       <View className="mt-1 flex-row items-center gap-1 self-end">
         {item.edited && <Text className={`text-[10px] italic ${isMe ? 'text-blue-200/60' : 'text-gray-400'}`}>edited</Text>}
@@ -73,29 +86,61 @@ type RowProps = {
   item: Message
   tail: boolean
   gap: boolean
+  contactName: string
+  highlight: boolean
   onLongPress: (m: Message) => void
+  onReply: (m: Message) => void
+  onJumpTo: (id: string) => void
   onOpenImage: (u: string) => void
   onOpenVideo: (u: string) => void
+  onOpenShared: (postId: string) => void
   onRetry: (m: Message) => void
   onDiscard: (m: Message) => void
 }
 
-const Row = memo(function Row({ item, tail, gap, onLongPress, onOpenImage, onOpenVideo, onRetry, onDiscard }: RowProps) {
+const Row = memo(function Row({
+  item, tail, gap, contactName, highlight, onLongPress, onReply, onJumpTo, onOpenImage, onOpenVideo, onOpenShared, onRetry, onDiscard,
+}: RowProps) {
   const isMe = item.sender === 'me'
   const handleLongPress = useCallback(() => onLongPress(item), [onLongPress, item])
+  const handleReply = useCallback(() => onReply(item), [onReply, item])
+
+  // soft highlight band when you jump here from a quote
+  const flash = useSharedValue(0)
+  useEffect(() => {
+    if (highlight) flash.value = withSequence(withTiming(1, { duration: 180 }), withDelay(900, withTiming(0, { duration: 500 })))
+  }, [highlight, flash])
+  const flashStyle = useAnimatedStyle(() => ({ opacity: flash.value }))
+
+  const reply = item.replyTo
+  const rich = !!item.media || !!item.sharedPostId
+
   return (
-    <Animated.View
-      entering={item.fresh ? BUBBLE_ENTER : undefined}
-      className={`flex-row ${isMe ? 'justify-end' : 'justify-start'}`}
-      style={{ marginTop: gap ? 8 : 0 }}
-    >
-      {item.media ? (
-        <MediaBubble item={item} isMe={isMe} tail={tail} onLongPress={onLongPress} onOpenImage={onOpenImage} onOpenVideo={onOpenVideo} onRetry={onRetry} onDiscard={onDiscard} />
-      ) : item.sharedPostId ? (
-        <SharedPostBubble postId={item.sharedPostId} initialPost={item.sharedPost} isMe={isMe} onLongPress={handleLongPress} />
-      ) : (
-        <TextBubble item={item} isMe={isMe} tail={tail} onLongPress={onLongPress} />
-      )}
+    <Animated.View entering={item.fresh ? BUBBLE_ENTER : undefined} style={{ marginTop: gap ? 8 : 0 }}>
+      <Animated.View
+        pointerEvents="none"
+        className="absolute rounded-xl bg-sky-400/25"
+        style={[{ left: -14, right: -14, top: -2, bottom: -2 }, flashStyle]}
+      />
+      <SwipeToReply enabled={!item.status} isMe={isMe} onReply={handleReply}>
+        {rich ? (
+          <View className={isMe ? 'items-end' : 'items-start'}>
+            {item.forwarded && <ForwardedTag className="px-1" />}
+            {reply && (
+              <View className="w-[230px] max-w-full">
+                <ReplyQuote reply={reply} name={reply.sender === 'me' ? 'You' : contactName} onPress={() => onJumpTo(reply.id)} />
+              </View>
+            )}
+            {item.media ? (
+              <MediaBubble item={item} isMe={isMe} tail={tail} onLongPress={onLongPress} onOpenImage={onOpenImage} onOpenVideo={onOpenVideo} onRetry={onRetry} onDiscard={onDiscard} />
+            ) : (
+              <SharedPostBubble postId={item.sharedPostId!} initialPost={item.sharedPost} isMe={isMe} onLongPress={handleLongPress} onOpen={() => onOpenShared(item.sharedPostId!)} />
+            )}
+          </View>
+        ) : (
+          <TextBubble item={item} isMe={isMe} tail={tail} contactName={contactName} onLongPress={onLongPress} onJumpTo={onJumpTo} />
+        )}
+      </SwipeToReply>
     </Animated.View>
   )
 })
@@ -103,7 +148,7 @@ const Row = memo(function Row({ item, tail, gap, onLongPress, onOpenImage, onOpe
 // ---------- Screen ----------
 export function ChatScreen({
   contact, messages, isConnected, toast, hasMore, onBack, onSend, onSendMedia, onRetry, onDiscard, onLoadOlder,
-  onEditMessage, onOpenProfile, onDeleteMessage, onClearChat, onNotify,
+  onEditMessage, onOpenProfile, onDeleteMessage, onClearChat, onNotify, onForward, onOpenShared
 }: Props) {
   const insets = useSafeAreaInsets()
   const listRef = useRef<FlatList<Message>>(null)
@@ -115,6 +160,10 @@ export function ChatScreen({
   const [viewVideo, setViewVideo] = useState<string | null>(null)
   const [gifOpen, setGifOpen] = useState(false)
   const [backdrop, setBackdrop] = useState<string | undefined>()
+  const [reply, setReply] = useState<ReplyRef | null>(null)
+  const [forwardMsg, setForwardMsg] = useState<Message | null>(null)
+  const [highlightId, setHighlightId] = useState<string | null>(null)
+  const hlTimers = useRef<ReturnType<typeof setTimeout>[]>([])
   const loading = useSelector((s: RootState) => s.chat.loading)
 
   useFocusEffect(
@@ -124,9 +173,14 @@ export function ChatScreen({
     }, [contact._id])
   )
 
+  // a reply belongs to one chat
+  useEffect(() => { setReply(null); setForwardMsg(null) }, [contact._id])
+  useEffect(() => () => hlTimers.current.forEach(clearTimeout), [])
+
   const data = useMemo(() => [...messages].reverse(), [messages]) // inverted list wants newest first
   const editing = useMemo(() => messages.find((m) => m.id === editingId) ?? null, [messages, editingId])
   const cancelEdit = useCallback(() => setEditingId(null), [])
+  const cancelReply = useCallback(() => setReply(null), [])
 
   useEffect(() => {
     if (editing?.read) {
@@ -150,9 +204,16 @@ export function ChatScreen({
   )
 
   const closeSheet = useCallback(() => setSheet(null), [])
+
   const openMenu = useCallback(() => setSheet({ kind: 'menu' }), [])
+
   const handleProfile = useCallback(() => onOpenProfile(contact), [onOpenProfile, contact])
+
   const hint = useCallback((t: string) => onNotify(t, 'info'), [onNotify])
+  const handleOpenShared = useCallback(
+    (postId: string) => onOpenShared?.(postId),
+    [onOpenShared]
+  )
 
   const { startCall, state: callState, isReady: callsReady } = useCall()
   const placeCall = useCallback(
@@ -166,12 +227,66 @@ export function ChatScreen({
 
   const toBottom = useCallback(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), [])
 
-  const handleSend = useCallback((text: string) => { toBottom(); return onSend(text) }, [onSend, toBottom])
-  const sendDraft = useCallback((d: MediaDraft) => {
-    if (!onSendMedia) return onNotify('Media sending is not connected yet', 'info')
-    toBottom()
-    onSendMedia(d)
-  }, [onSendMedia, toBottom, onNotify])
+  // text: the reply goes out with it, and comes back if the send fails
+  const handleSend = useCallback(
+    async (text: string) => {
+      toBottom()
+      const r = reply
+      setReply(null)
+      const ok = await onSend(text, undefined, r ? { replyTo: r } : undefined)
+      if (!ok && r) setReply((cur) => cur ?? r)
+      return ok
+    },
+    [onSend, toBottom, reply]
+  )
+
+  const sendDraft = useCallback(
+    (d: MediaDraft) => {
+      if (!onSendMedia) return onNotify('Media sending is not connected yet', 'info')
+      toBottom()
+      const r = reply
+      setReply(null)
+      onSendMedia(r ? { ...d, replyTo: r } : d)
+    },
+    [onSendMedia, toBottom, onNotify, reply]
+  )
+
+  // ----- reply -----
+  const startReply = useCallback((m: Message) => {
+    if (m.status) return
+    setEditingId(null)
+    setReply(toReply(m))
+  }, [])
+
+  const jumpTo = useCallback(
+    (id: string) => {
+      const index = data.findIndex((m) => m.id === id)
+      if (index < 0) return onNotify('That message is too far back', 'info')
+      listRef.current?.scrollToIndex({ index, viewPosition: 0.5, animated: true })
+      hlTimers.current.forEach(clearTimeout)
+      setHighlightId(null)
+      hlTimers.current = [setTimeout(() => setHighlightId(id), 380), setTimeout(() => setHighlightId(null), 2200)]
+    },
+    [data, onNotify]
+  )
+
+  // ----- forward -----
+  const doForward = useCallback(
+    async (ids: string[]) => {
+      if (!forwardMsg) return false
+      if (!onForward) { onNotify('Forwarding is not connected yet', 'info'); return false }
+      const res = await onForward(forwardMsg.id, ids)
+      if (!res || res.sent === 0) { onNotify("Couldn't forward the message", 'info'); return false }
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { })
+      // onNotify(
+      //   res.failed > 0
+      //     ? `Forwarded to ${res.sent}, ${res.failed} couldn't be reached`
+      //     : res.sent === 1 ? 'Message forwarded' : `Forwarded to ${res.sent} people`
+      // )
+      return true
+    },
+    [forwardMsg, onForward, onNotify]
+  )
 
   // ----- system camera / gallery (crop for photos, trim on iOS for videos) -----
   const assetToDraft = useCallback(
@@ -250,8 +365,11 @@ export function ChatScreen({
       return {
         title,
         options: [
+          { label: 'Reply', icon: 'return-up-back-outline', onPress: () => startReply(m) },
+          // wait for the sheet to finish closing before opening another modal (iOS can't stack them)
+          { label: 'Forward', icon: 'arrow-redo-outline', onPress: () => { setTimeout(() => setForwardMsg(m), 280) } },
           ...(m.content ? [{ label: 'Copy', icon: 'copy-outline' as const, onPress: () => { Clipboard.setStringAsync(m.content).then(() => onNotify('Copied to clipboard')) } }] : []),
-          ...(canEdit ? [{ label: 'Edit', icon: 'create-outline' as const, onPress: () => setEditingId(m.id) }] : []),
+          ...(canEdit ? [{ label: 'Edit', icon: 'create-outline' as const, onPress: () => { setReply(null); setEditingId(m.id) } }] : []),
           ...del,
         ],
       }
@@ -274,7 +392,7 @@ export function ChatScreen({
         { label: 'Clear chat (for me)', icon: 'trash-outline', destructive: true, onPress: onClearChat },
       ],
     }
-  }, [sheet, messages, onNotify, onDeleteMessage, onDiscard, onClearChat, handleProfile, openCamera, openGallery])
+  }, [sheet, messages, onNotify, onDeleteMessage, onDiscard, onClearChat, handleProfile, openCamera, openGallery, startReply])
 
   const handleRetry = useCallback((m: Message) => onRetry(m.id), [onRetry])
   const handleDiscard = useCallback((m: Message) => onDiscard(m.id), [onDiscard])
@@ -288,15 +406,20 @@ export function ChatScreen({
           item={item}
           tail={!newer || newer.sender !== item.sender}
           gap={!!older && older.sender !== item.sender}
+          contactName={contact.username}
+          highlight={highlightId === item.id}
           onLongPress={handleBubbleLongPress}
+          onReply={startReply}
+          onJumpTo={jumpTo}
           onOpenImage={setViewImage}
           onOpenVideo={setViewVideo}
+          onOpenShared={handleOpenShared}
           onRetry={handleRetry}
           onDiscard={handleDiscard}
         />
       )
     },
-    [data, handleBubbleLongPress, handleRetry, handleDiscard]
+    [data, contact.username, highlightId, handleBubbleLongPress, startReply, jumpTo, handleRetry, handleDiscard, handleOpenShared]
   )
 
   const empty = !loading && messages.length === 0
@@ -328,6 +451,7 @@ export function ChatScreen({
           <FlatList
             ref={listRef}
             data={data}
+            extraData={highlightId}
             inverted
             keyExtractor={(m) => m.id}
             renderItem={renderItem}
@@ -337,6 +461,11 @@ export function ChatScreen({
             scrollEventThrottle={64}
             onEndReached={hasMore ? onLoadOlder : undefined} // inverted: the "end" is the oldest message
             onEndReachedThreshold={0.4}
+            onScrollToIndexFailed={(info) => {
+              // row not measured yet: get close first, then land on it
+              listRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: true })
+              setTimeout(() => listRef.current?.scrollToIndex({ index: info.index, viewPosition: 0.5, animated: true }), 280)
+            }}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'none'}
             showsVerticalScrollIndicator={false}
@@ -376,10 +505,15 @@ export function ChatScreen({
           editing={editing}
           onCancelEdit={cancelEdit}
           onSubmitEdit={submitEdit}
+          reply={reply}
+          replyName={reply?.sender === 'me' ? 'yourself' : contact.username}
+          onCancelReply={cancelReply}
         />
       </KeyboardAvoidingView>
 
       <ActionSheet visible={!!sheet} backdrop={backdrop} title={sheetConfig.title} options={sheetConfig.options} onClose={closeSheet} />
+
+      <ForwardSheet message={forwardMsg} onClose={() => setForwardMsg(null)} onSend={doForward} />
 
       <MediaPreview draft={preview} onCancel={() => setPreview(null)} onSend={(d) => { setPreview(null); sendDraft(d) }} />
       <ImageViewer uri={viewImage} onClose={() => setViewImage(null)} />

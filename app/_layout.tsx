@@ -23,6 +23,7 @@ import { NotificationExpandHost } from '@/components/notification/NotificationEx
 import '@/components/services/installFailover';
 import { AccountSwitcherHost } from '@/components/auth/AccountSwitcher';
 import Animated, { FadeOut, FadeIn } from 'react-native-reanimated';
+import { useChatBadgeSync } from '@/lib/chat/useChatBadgeSync';
 
 SplashScreen.preventAutoHideAsync();
 setupAxios(); // interceptors installed once, before any screen makes a request
@@ -33,6 +34,7 @@ function AuthGate() {
   const activeAccountId = useSelector((s: any) => s.auth.activeAccountId);
   const currentUserId = useSelector((s: any) => s.auth.user?._id ?? s.auth.user?.id);
   const addingAccount = useSelector((s: any) => s.auth.addingAccount);
+  useChatBadgeSync();
 
   // 1) Decide signedIn / signedOut once on start.
   useEffect(() => {

@@ -57,14 +57,15 @@ type Props = {
     position: SharedValue<number>;
     active: FeedTab;
     onSelect: (tab: FeedTab) => void;
+    labels?: readonly string[];
 };
 
 /** Glass segmented control whose pill slides in sync with the pager (and the finger). */
-export function FeedTabs({ position, active, onSelect }: Props) {
+export function FeedTabs({ position, active, onSelect, labels = FEED_TABS }: Props) {
     const trackWidth = useSharedValue(0);
-
+    const count = labels.length;
     const pill = useAnimatedStyle(() => {
-        const pillWidth = (trackWidth.get() - TRACK_PADDING * 2) / FEED_TABS.length;
+        const pillWidth = (trackWidth.get() - TRACK_PADDING * 2) / count;
         return { width: pillWidth, transform: [{ translateX: position.get() * pillWidth }] };
     });
 
@@ -85,7 +86,7 @@ export function FeedTabs({ position, active, onSelect }: Props) {
                 "
             >
             <Animated.View pointerEvents="none" style={[styles.pill, pill]} />
-            {FEED_TABS.map((label, i) => (
+            {labels.map((label, i) => (
                 <TabLabel
                     key={label}
                     index={i as FeedTab}

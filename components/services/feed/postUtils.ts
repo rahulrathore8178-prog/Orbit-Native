@@ -79,6 +79,18 @@ export const formatTimeAgo = (createdAt: string | number | Date): string => {
     return `${Math.floor(days / 365)}y`;
 };
 
+/** "Just now" / "5m ago" / "3h ago", then a date once it is older than 24 hours. */
+export const formatPostTime = (createdAt: string | number | Date): string => {
+    const then = new Date(createdAt).getTime();
+    if (Number.isNaN(then)) return '';
+    const diff = Math.max(0, Date.now() - then);
+    if (diff < 10_000) return 'Just now';
+    if (diff < 24 * 3600 * 1000) return `${formatTimeAgo(createdAt)} ago`;
+    const d = new Date(then);
+    const sameYear = d.getFullYear() === new Date().getFullYear();
+    return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }) });
+};
+
 export const formatCount = (count: number): string => {
     if (count < 1000) return `${count}`;
     if (count < 1_000_000) return `${(count / 1000).toFixed(count % 1000 >= 100 ? 1 : 0)}k`;

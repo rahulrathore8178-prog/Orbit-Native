@@ -1,4 +1,4 @@
-import { MediaDraft, Message } from '@/hooks/chats/useChat'
+import { MediaDraft, Message, ReplyRef } from '@/hooks/chats/useChat'
 import { QuickChats } from '@/components/chats/QuickChats'
 import { VoiceNotePreview } from '@/components/posts/PostMedia'
 import { Ionicons } from '@expo/vector-icons'
@@ -11,6 +11,7 @@ import Animated, {
     FadeInDown, FadeInUp, FadeOut, LinearTransition, ZoomIn, ZoomOut, cancelAnimation, interpolate,
     useAnimatedStyle, useSharedValue, withRepeat, withSequence, withSpring, withTiming,
 } from 'react-native-reanimated'
+import { ReplyBar } from './ReplyQuote'
 
 const ICON = '#d4d8e1'
 const MAX_VOICE_SECONDS = 300
@@ -23,7 +24,7 @@ const haptic = (style = Haptics.ImpactFeedbackStyle.Light) => Haptics.impactAsyn
 type Phase = 'idle' | 'recording' | 'locked' | 'review'
 
 export const Composer = memo(function Composer({
-    safeBottom, contactId, onSend, onAttach, onCamera, onSendVoice, editing, onCancelEdit, onSubmitEdit,
+    safeBottom, contactId, onSend, onAttach, onCamera, onSendVoice, editing, onCancelEdit, onSubmitEdit, reply, replyName, onCancelReply,
 }: {
     safeBottom: number
     contactId: string
@@ -35,6 +36,9 @@ export const Composer = memo(function Composer({
     editing: Message | null
     onCancelEdit: () => void
     onSubmitEdit: (text: string) => Promise<boolean>
+    reply?: ReplyRef | null
+    replyName?: string
+    onCancelReply?: () => void
 }) {
     const [text, setText] = useState('')
     const [phase, setPhase] = useState<Phase>('idle')
@@ -52,6 +56,10 @@ export const Composer = memo(function Composer({
         hintTimer.current = setTimeout(() => setHintText(null), 1800)
     }, [])
     useEffect(() => () => clearTimeout(hintTimer.current), [])
+
+    useEffect(() => {
+        if (reply) setTimeout(() => inputRef.current?.focus(), 60)
+    }, [reply?.id])
 
     useEffect(() => {
         if (editing) {
@@ -293,7 +301,7 @@ export const Composer = memo(function Composer({
                         <Ionicons name="add" size={24} color={ICON} />
                     </Pressable>
                 )}
-                <Animated.View
+                <View
                     layout={LinearTransition.springify().damping(18)}
                     className="min-h-[44px] flex-1 flex-row items-end rounded-[24px] border border-white/10 bg-white/[0.06] pl-4 pr-1.5"
                 >
@@ -315,7 +323,7 @@ export const Composer = memo(function Composer({
                             </Pressable>
                         </Animated.View>
                     )}
-                </Animated.View>
+                </View>
             </>
         )
     }
@@ -376,6 +384,11 @@ export const Composer = memo(function Composer({
                     </Pressable>
                 </Animated.View>
             )}
+
+            {reply && !editing && phase === 'idle' && (
+                <ReplyBar reply={reply} name={replyName ?? ''} onCancel={() => onCancelReply?.()} />
+            )}
+
             <View className="flex-row items-end gap-2">
                 {left}
                 {right}

@@ -1,4 +1,4 @@
-import { formatTimeAgo, withHost } from '@/components/services/feed/postUtils';
+import { formatPostTime, formatTimeAgo, withHost } from '@/components/services/feed/postUtils';
 import { API_URL, getDisplayImageUrl } from '@/lib/utils';
 import type { FlarePost } from '../../constants/flares/types';
 
@@ -31,4 +31,6 @@ export function splitCaption(p: FlarePost) {
     return { caption, tags: tags.slice(0, 8) };
 }
 
-export const flareTimeAgo = (p: FlarePost) => `${formatTimeAgo(p.createdAt)} ago`;
+// export const flareTimeAgo = (p: FlarePost) => `${formatTimeAgo(p.createdAt)} ago`;
+
+export const flareTimeAgo = (p: FlarePost) => formatPostTime(p.createdAt);

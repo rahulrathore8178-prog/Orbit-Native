@@ -26,7 +26,6 @@ import { resolveMedia } from './flaresUtils';
 const SPRING = { damping: 28, stiffness: 190, mass: 1, restDisplacementThreshold: 0.5, restSpeedThreshold: 2 };
 const SPRING_HOLD = { damping: 22, stiffness: 240, mass: 0.9 }; // pull release / return
 const FLICK_V = 650;
-const DRAG_FRAC = 0.2;
 
 /* ---- pull to reload ---- */
 const PULL_THRESHOLD = 78; // px the page must travel down to arm the reload

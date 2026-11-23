@@ -30,12 +30,23 @@ export default function ConversationRoute() {
   const {
     messages, isConnected, hasMore, loadOlder,
     sendMessage, sendMedia, retryMessage, discardMessage,
-    editMessage, deleteMessage, clearMessages,
+    editMessage, deleteMessage, clearMessages, forwardMessage
   } = useChat({
     apiUrl: API_URL,
     selectedContact: contact,
     onOffline: handleOffline,
   })
+
+  const openShared = useCallback(
+    (postId: string) => {
+      if (!postId) return
+      router.push({
+        pathname: '/SharedScreen',
+        params: { postId, contactId: id },
+      } as any)
+    },
+    []
+  )
 
   const goBack = useCallback(() => router.back(), [])
 
@@ -73,6 +84,8 @@ export default function ConversationRoute() {
           onDeleteMessage={deleteMessage}
           onClearChat={clearMessages}
           onNotify={showToast}
+          onForward={forwardMessage}
+          onOpenShared={openShared}
         />
       ) : (
         <View className="flex-1 bg-black" />
